@@ -5,3 +5,7 @@
 *.swp
 *~
 Thumbs.db
+
+# Home Assistant backups — sensitive (secrets/tokens) + large, keep out of git
+*.tar
+
