@@ -1,23 +1,209 @@
 # Proxmox Server Management
 
-## Сервер
+> **СТАТУС (24.06.2026):** Міграція на нове залізо **ASRock Rack AM5D4ID2 + Ryzen 9 9900X**.
+> Стара система (TOPC PHX) виведена з роботи, але збережена як резервна — див. розділ
+> **"АРХІВ: попередня система (TOPC PHX)"** у кінці документа.
 
-- **Hostname:** pve (Tailscale: 100.120.149.7, pve.mining-owl.ts.net)
-- **Hardware:** TOPC PHX mini-PC, AMD Ryzen 7 PRO 7840HS, 16 cores, 64GB RAM, NVMe 931GB
-- **OS:** Proxmox VE 9.2.3, Debian 13 (trixie), kernel 6.17.13-11-pve (pinned)
-- **ZFS:** rpool (148GB, системний), vmstore (781GB, /vmstore — переважно для TrueNAS system disk)
+## 📍 ДЕ МИ ЗАРАЗ (читати першим у новій сесії)
 
-## SSH доступ
+**Зроблено (сесія 24.06.2026 — від голого заліза до готової ноди):**
+- ✅ Залізо зібрано: AM5D4ID2 + 9900X, 2×32 DDR5 (A1/B1), Samsung 990 PRO 1TB, NH-D12L
+- ✅ Прошивки: BMC 1.05→**2.05.00** (закрито CVE-2024-54085), BIOS 10.09→**11.04** (AGESA 1.2.0.3b)
+- ✅ Дані старої системи врятовано на зовнішній **Samsung T7** (`/mnt/backup/pve/`): pihole, haos, pbs,
+  truenas-ОС(Jellyfin), genomics-virtio0 + конфіги. windows10/NAS-диски — на offline-NAS, фізично цілі.
+- ✅ **Proxmox VE 9.2.3** встановлено начисто (ZFS rpool, єдиний пул на NVMe), оновлено (ядро 7.0.12, мікрокод Zen5)
+- ✅ Перевірки: memtest 1 прохід 0 помилок; стрес-тест охолодження (65W→52°C, повний TDP→87°C без троттлінгу)
+- ✅ Базове налаштування: репо no-subscription, sleep/suspend masked, ARC 6GB закріплено, timezone Kyiv
+  - ⏸️ rasdaemon СВІДОМО відкладено до налаштування інтернету (потребує apt → робити разом з Tailscale/SSH, Етап 5)
+- ✅ HDMI діагностовано: НЕ обмеження (amdgpu живий на ядрі 9.2), але консоль на ASPEED → фіз. HDMI чорний. KVM = основний канал.
+- ✅ Роутер RB5009 підготовлено: **ether6→BMC, ether7→PVE host, обидва access VLAN 10**. WAN на ether4, ether1 вільний 2.5G.
+- ✅ Документація: CLAUDE.md (цей файл) + bom-homelab-10inch.md оновлено. Бекап роутера після змін зроблено.
+
+**Зроблено (сесія — CRS305 свіч заведено в мережу + перегляд плану портів):**
+- ✅ **CRS305-1G-4S+IN у мережі.** RouterOS 7.20.8 (long-term). Remove Configuration → чистий старт.
+  - Живлення: **PoE з RB5009 ether7** (poe-out auto-on, ~5.7 Вт). Вхід роутера 48.7 В (DC-jack) → PoE-out 802.3af/at-сумісний; CRS305 приймає 12–57 В.
+  - Менеджмент: **10.10.10.2/24** на **ether1** (гіг), gw 10.10.10.1. Пароль admin задано.
+  - Дані: **10G SFP-trunk** — sfp-sfpplus1(свіч) ↔ sfp-sfpplus1(роутер), tagged усі VLAN (10/20/30/40/45/50), vlan-filtering=yes, protocol-mode=rstp.
+  - **Дизайн (важливо):** ether1 НЕ в бриджі — гіг лишається окремим mgmt+PoE-портом; у бриджі лише SFP-trunk. Тому нема петлі, RSTP нічого не блокує, менеджмент стабільний. (Перша спроба «ether1 у бриджі» давала RSTP-блок гіга → обрив MAC-сесії → відкат Safe Mode. НЕ повторювати.)
+  - sfp2/3/4 свіча — вільні, під NAS / 10G ноди / робочу станцію (access-порти при підключенні).
+- 🔄 **ЗМІНА плану портів RB5009** (нода обходиться одним кабелем — shared NIC; БУЛО: ether6→BMC, ether7→PVE host):
+  - **ether6 → Proxmox-нода** (BMC .5 + хост .10 разом, shared NIC), frame-types=admit-all, pvid=10.
+  - **ether7 → CRS305** (PoE + гіг-лінк).
+  - **sfp-sfpplus1 → trunk до CRS305** (10G ноди тепер піде В СВІЧ на sfp2/3/4, не прямо в роутер).
+- ✅ **Firewall:** додано `MGMT (VLAN10) → Internet` (forward/accept, src MGMT_NETS, out WAN) — лише вихід; inter-VLAN ізоляція ціла. Свідомо: VLAN 10 раніше був без інтернету. Потрібно для apt/Tailscale ноди + щоб admin-SSID мав інтернет.
+- ✅ **admin-SSID `Fubar-Mgmt`** (CAPsMAN: cfg-mgmt/sec-mgmt/dp-mgmt) — нетегований → нативний VLAN 10. Локальний адмін-вхід у MGMT по Wi-Fi (з LAN/SRV у MGMT свідомо закрито). ⚠️ Пароль тимчасовий (світився) — змінити/прибрати.
+- ✅ Lease MacBook закріплено статикою 10.10.20.200.
+
+**📋 ЗАДАЧІ НА МАЙБУТНЄ (свіч / мережа):**
+- [ ] **ether6 під ноду** (ПЕРЕД підключенням): додати ether6 у **untagged VLAN 10** + **tagged VLAN 30** (зараз ні те, ні те — VLAN 30 тегований на ether7, спадок «host на ether7»). Без цього shared-NIC нода (untagged) не запрацює.
+- [ ] **Fubar-Mgmt пароль:** змінити на приватний (Winbox → WiFi → Security → sec-mgmt → Passphrase) АБО прибрати SSID (cfg-mgmt + sec-mgmt + dp-mgmt + з provisioning; re-provision блимне Wi-Fi).
+- [ ] **sfp2/3/4 свіча → access-порти** під кожен пристрій при підключенні (NAS → VLAN 30; 10G ноди → trunk/VLAN за потребою; робоча станція → VLAN 20/30).
+- [ ] **Tailscale для Черкас** — на Proxmox-ноді (Етап 2) як subnet-router VLAN 10. Рішення: **Черкаси = Tailscale**, Боровиця лишається ZeroTier (у ZT вичерпано ліміт маршрутів 2/1 + перетин 10.10.x між локаціями).
+- [ ] **ether7 cleanup:** прибрати застарілі tagged-членства VLAN 20/30/40/45/50 з ether7 (тепер це лише гіг свіча, untagged VLAN 10). Нешкідливо, але охайніше.
+- [ ] **Бекапи:** бекап конфігу роутера (після цих змін) + бекап свіча (`/export` або `/system/backup`) на Mac mini.
+- [ ] **Свіч identity + SSH:** задати identity (напр. `home-switch`); коли буде overlay — ключ на свіч, вимкнути парольний SSH, alias.
+- [ ] (Опц.) **RSTP root:** зробити роутер кореневим мостом (зараз корінь — свіч; підняти bridge priority роутера). Не критично.
+
+**🔜 НАСТУПНИЙ КРОК:** фізичний монтаж ноди в стійку → далі по плану нижче ("ПЛАН ДОНАЛАШТУВАННЯ", Етапи 1-7).
+Нода зараз НЕ в стійці, працювала через тимчасову мережу макбука (Internet Sharing 192.168.2.x).
+Статика ноди: **10.10.10.10/24** (VLAN 10, gw 10.10.10.1). BMC цільова статика: **10.10.10.5**.
+
+**⭐ ВИМОГА користувача (пріоритет, Етап 2):** доступ до BMC через інтернет (через Tailscale subnet-router,
+НЕ прямий проброс!) + SSH до сервера. Деталі — в Етапі 2 плану.
+
+**Гості ще НЕ відновлені** — це Етап 4 (після монтажу й мережі).
+
+---
+
+
+## Сервер (НОВИЙ — AM5D4ID2)
+
+- **Hostname:** pve.home.arpa
+- **Hardware:** ASRock Rack AM5D4ID2, AMD Ryzen 9 9900X (12 cores), **64GB RAM (2×32 DDR5-5600)**,
+  Samsung 990 PRO 1TB NVMe. BMC/IPMI (ASPEED AST2600).
+- **OS:** Proxmox VE 9.2.2, kernel 7.0.2-6-pve (рідне ядро 9.2 — нова нумерація, НЕ старе ядро).
+- **ZFS:** **rpool — єдиний пул на весь NVMe** (ZFS RAID0, ashift=12, compress=on). Система + VM-диски
+  в одному пулі (датасети ділять простір динамічно). БЕЗ дзеркала (PBS-бекапи покривають).
+- **Прошивки:** BMC 2.05.00 (закрито CVE-2024-54085, CVSS 10.0), BIOS 11.04 (AGESA 1.2.0.3b).
+- **CPU power:** Eco Mode 65W (менше тепла у вузькому 10" корпусі; підняти до 105W за потреби під genomics).
+- **Тести 24.06 (відкритий стенд, NH-D12L):** memtest 1 прохід 0 помилок. Стрес-тест stress-ng (24 потоки):
+  Eco 65W → Tccd 52-54°C (частоти ~3.0GHz); повний TDP → Tccd 85-88°C плато, БЕЗ троттлінгу (запас ~8°C
+  до 95°C). Паста/контакт відмінні. Always-on режим: 65W (холодно/тихо) або 105W (~70-75°C під genomics);
+  повний TDP постійно НЕ тримати (у корпусі запас стане тонким).
+- **Мережа менеджменту:** i210 (гігабіт) → **VLAN 10**, IP **10.10.10.10/24**, gw 10.10.10.1.
+  BMC → **VLAN 10**, статика 10.10.10.5 (або DHCP .50-99). Майбутня 10G SFP+ карта → робочий трафік.
+- **BMC доступ:** H5Viewer (KVM), Serial-over-LAN. HDMI: amdgpu піднімається на ядрі 9.2 (НЕ обмеження),
+  але консоль на ASPEED (primary) → фізичний HDMI чорний. KVM — основний канал, HDMI лишено як є.
+
+> **Стан міграції:** система встановлена начисто, ZFS rpool ONLINE. Гості ще НЕ відновлені (бекапи на T7).
+> Нода фізично ще не підключена в стійку. Наступні кроки — див. "TODO міграції" нижче.
+
+## SSH доступ (новий — після підключення/відновлення)
 
 ```bash
-ssh pve   # MacBook key (~/.ssh/pve_admin)
+ssh pve   # MacBook key (~/.ssh/pve_admin) — налаштувати на новій системі
 ```
 
-- Парольний SSH вимкнено
-- Authorized keys: MacBook (pve_admin), iPhone (Termius)
-- Tailscale DNS: pve.mining-owl.ts.net
+- Парольний SSH вимкнути після налаштування ключів
+- Tailscale — ставиться заново на чисту 9.2 (старий не переноситься), потім `tailscale up` + авторизація
 
-## VM / CT
+## Мережа (НОВА — AM5D4ID2)
+
+- **Менеджмент:** i210 (гігабіт) → **MikroTik ether7** (access VLAN 10, untagged) → **10.10.10.10/24**, gw 10.10.10.1.
+- **BMC/IPMI:** окремий порт → **MikroTik ether6** (access VLAN 10, untagged) → 10.10.10.5 (статика) або DHCP (.50-99).
+- **Майбутня 10G SFP+ карта** → робочий трафік (VLAN 30 servers + сторедж до NAS), trunk на sfp-sfpplus1.
+
+> **ЗМІНА vs стара система:** на старому залізі ether6/ether7 були VLAN 30 (vmbr0 + виділений vmbr1 для TrueNAS).
+> 24.06.2026 переналаштовано: **ether6/ether7 → VLAN 10** під нову ноду + BMC. Виділений NIC для TrueNAS
+> більше не актуальний — TrueNAS переїжджає на окрему bare-metal NAS-плату (CWWK).
+
+**Підготовка роутера ЗРОБЛЕНА 24.06.2026** (детально — у bom-homelab-10inch.md):
+- ether6 → PVID 10, untagged VLAN 10 (BMC). ether7 → PVID 10, untagged VLAN 10 (PVE host).
+- ether3 (AP) збережено в untagged VLAN 10. "Увіткнув патчкорд — запрацювало".
+- WAN мігрував на ether4 (ether1 — вільний 2.5G резерв; WAN на 1G ether4 нічого не ріже).
+
+### VLAN (MikroTik RB5009UPr+S+) — підтверджено з конфігу 24.06.2026
+
+| VLAN | Назва | Підмережа | Gateway | DHCP-пул |
+|------|-------|-----------|---------|----------|
+| 10 | Management | 10.10.10.0/24 | 10.10.10.1 | 10.10.10.50-99 |
+| 20 | LAN | 10.10.20.0/24 | 10.10.20.1 | 10.10.20.100-200 |
+| 30 | Servers | 10.10.30.0/24 | 10.10.30.1 | 10.10.30.200-254 |
+| 40 | IoT | 10.10.40.0/24 | 10.10.40.1 | 10.10.40.100-200 |
+| 45 | IP Cameras | 10.10.45.0/24 | 10.10.45.1 | (Wi-Fi via AP) |
+| 50 | Guest | 10.10.50.0/24 | 10.10.50.1 | 10.10.50.50-200 |
+
+### Сервіси нової системи — IP
+
+> Після відновлення гостей IP/доступи треба буде перепризначити під нову мережу (менеджмент VLAN 10).
+> Сервіси (Pi-hole, HAOS, TrueNAS, PBS, Jellyfin) — у VLAN 30, IP-плани див. в архіві (стара система),
+> уточнити при відновленні. DNS-імена `.home.arpa` зберігаються.
+
+## ПЛАН ДОНАЛАШТУВАННЯ ПІСЛЯ МОНТАЖУ В СТІЙКУ
+
+> Підготовку до стійки ЗРОБЛЕНО 24.06 (оновлення 9.2.3, ядро 7.0.12, мікрокод, sleep mask,
+> ARC 6GB, timezone Kyiv). rasdaemon ЩЕ НЕ стоїть — відкладено до інтернету (Етап 5). Нижче — що робити ПІСЛЯ фізичного підключення, по етапах.
+
+### Етап 1 — фізичне підключення + мережа (фундамент)
+- [ ] Підключити патчкорд: нода (shared NIC, BMC+хост разом) → **ether6** (ОДИН кабель). ⚠️ Спершу підправити членство ether6: untagged VLAN 10 + tagged VLAN 30 (див. «ЗАДАЧІ НА МАЙБУТНЄ» вгорі). ether7 ТЕПЕР зайнятий свічем CRS305 (PoE+гіг), не нодою.
+- [ ] Перевірити, що нода піднялась на статиці **10.10.10.10** (vmbr0), доступна з робочого місця (VLAN 20/30)
+  - веб-морда: https://10.10.10.10:8006
+- [ ] **BMC у VLAN 10:** веб-інтерфейс BMC → Network Settings → Network IP Settings → Static
+  **10.10.10.5 / 24, gw 10.10.10.1**. (BMC = Shared NIC режим, підтверджено.) Після цього старий
+  192.168.2.6 (Internet Sharing) відпаде — робити, КОЛИ вже є лінк у VLAN 10.
+- [ ] Перевірити інтернет на ноді (через шлюз VLAN 10 → WAN ether4): `ping 8.8.8.8`, `ping google.com`
+
+### Етап 2 — ВИМОГА: доступ до BMC через інтернет + SSH до сервера
+> ⚠️ BMC НІКОЛИ не виставляти прямо в інтернет (проброс порту = критична діра, згадай CVE-2024-54085).
+> Правильний шлях — через **Tailscale subnet-router** (зашифрований тунель, не голий інтернет).
+- [ ] **Tailscale на ноду:** `curl -fsSL https://tailscale.com/install.sh | sh`
+- [ ] Підняти як **subnet-router для VLAN 10** (щоб дістати BMC через тунель):
+  `tailscale up --advertise-routes=10.10.10.0/24 --accept-routes`
+  (за потреби додати й інші VLAN: 10.10.30.0/24 для сервісів, як було на старій системі)
+- [ ] В адмінці Tailscale (login.tailscale.com) — **схвалити advertised route** 10.10.10.0/24
+- [ ] Увімкнути IP forwarding на ноді: `/etc/sysctl.d/99-tailscale.conf` →
+  `net.ipv4.ip_forward=1` + `net.ipv6.conf.all.forwarding=1`, потім `sysctl -p ...`
+- [ ] **Перевірка доступу до BMC через інтернет:** з телефона/ноута (через Tailscale, з мобільного
+  інтернету) відкрити https://10.10.10.5 → має відкритись BMC. ЦЕ Й Є ВИКОНАННЯ ВИМОГИ.
+- [ ] **SSH до сервера:** скопіювати ключ MacBook на ноду (`ssh-copy-id` або вручну в
+  `/root/.ssh/authorized_keys`), додати iPhone-ключ (Termius). Тоді `ssh pve` працює і локально,
+  і через Tailscale (з будь-де). ВИМКНУТИ парольний SSH: `/etc/ssh/sshd_config` →
+  `PasswordAuthentication no`, `systemctl restart ssh`.
+- [ ] (Опц.) MagicDNS-ім'я ноди в Tailscale для зручності (типу pve.<tailnet>.ts.net)
+
+### Етап 3 — мережеві мости під VLAN для гостей
+- [ ] Вирішити trunk vs access на ether7: якщо гостям потрібні різні VLAN (HAOS, pihole, NAS-трафік) —
+  зробити ether7 **trunk** на RB5009 + **VLAN-aware bridge** на Proxmox (vmbr0 vlan-aware).
+  Якщо все в одному VLAN — лишити access. (Зараз access VLAN 10.)
+- [ ] Налаштувати vmbr0 vlan-aware, призначити гостям потрібні VLAN-теги
+
+### Етап 4 — відновлення гостей із бекапу (T7: /mnt/backup/pve/)
+- [ ] Підключити T7, змонтувати (`mount -t exfat /dev/sda1 /mnt/backup`)
+- [ ] Відновити: **pihole (110), haos-ck (111), pbs (130)** — повні, локальні
+- [ ] Відновити **truenas-ОС (120, scsi0 32G з Jellyfin)** + **genomics (150, virtio0 64G)** —
+  але БЕЗ NAS-дисків (вони на offline-NAS; прив'язки відновити, коли буде NAS)
+- [ ] windows10 (100) — лише конфіг (диски на NAS, чекають NAS-плату)
+- [ ] Команда: `qmrestore /mnt/backup/pve/vzdump-qemu-NNN-....vma.zst NNN --storage local-zfs`
+  (для CT: `pct restore`). Перевірити мережу кожного гостя після відновлення.
+
+### Етап 5 — гігієна / стабільність / моніторинг (потребує інтернету)
+- [ ] **rasdaemon — ВСТАНОВИТИ** (ще НЕ стоїть, відкладено з 24.06 через брак інтернету):
+  `apt install -y rasdaemon` → `systemctl enable --now rasdaemon` → перевірка `ras-mc-ctl --summary` + `ras-mc-ctl --error-count`
+- [ ] ZFS scrub за розкладом (cron щонеділі, як на старій: `zpool scrub rpool`)
+- [ ] Налаштувати сповіщення (email вже заданий sergey.slepchenko@gmail.com — перевірити postfix)
+- [ ] (Опц.) kernel.panic=10 для авторебуту headless — за бажанням (на здоровому BIOS 11.04 менш критично)
+- [ ] **НЕ переносити** старі cmdline-милиці (processor.max_cstate=1, pcie_aspm=off, amd_pstate=passive) —
+  вони були під мертвий BIOS 0.01, на AM5D4ID2 шкодять енергоефективності
+
+### Етап 6 — NAS-плата (CWWK), коли приїде
+- [ ] TrueNAS bare-metal на CWWK (не VM!) — прибирає ZFS-on-ZFS і passthrough-проблеми
+- [ ] PBS — або на NAS, або окремо; відновити бекап-джоби
+- [ ] Перенести Toshiba 8TB пул на bare-metal TrueNAS (`zpool import tank8TB-mirror`)
+- [ ] Відновити прив'язки NAS-дисків для windows10/genomics, NFS-сторедж до Proxmox
+
+### Етап 7 — залізо / фіналізація
+- [ ] Звірити 2×32 DDR5 у слотах A1/B1 за мануалом
+- [ ] Друк корпусу (Bambu A1: ASA гаряча зона / PETG решта) + фінальна орієнтація NH-D12L
+- [ ] (Майбутнє) 10G SFP+ карта → sfp-sfpplus1 (trunk, робочий трафік/сторедж); риг ADT-Link за потреби
+
+### БЕЗПЕКА (окремо)
+- [ ] Змінити пароль backup-користувача (`backup`@10.10.30.200) — відкритим текстом у скрипті make-backup
+      на RB5009; перейти на SSH-ключ. Пароль засвітився в сесії 24.06.
+- [ ] Перевірити firewall RB5009: доступ до VLAN 10 лише з VLAN 20/30 (правило є) + masquerade покриває
+      10.10.10.0/24 (для інтернету/Tailscale на ноді)
+
+---
+
+# АРХІВ: попередня система (TOPC PHX) — виведена з роботи 24.06.2026
+
+> ⚠️ **Усе нижче описує СТАРУ систему** (TOPC PHX mini-PC, Ryzen 7 7840HS), яка **мігрована** на
+> AM5D4ID2 (опис угорі). Збережено як резервну довідку — стара плата лишається робочою про запас.
+> **IP-адреси, мережа (VLAN 30, ether6/7), BIOS-проблеми тут стосуються СТАРОГО заліза.**
+> На новій системі: менеджмент у VLAN 10 (10.10.10.10), ether6/7 переналаштовані, BIOS AM5D4ID2 11.04
+> без крашів BIOS 0.01. Цінні УРОКИ (io_uring/aio, NFS ceiling, memory budget, ZFS-on-ZFS, PBS) —
+> лишаються актуальними архітектурно й переносяться на нову систему.
+
+## VM / CT (стара система — для відновлення з бекапу)
 
 | VMID | Назва | Тип | Стан | RAM | Диски |
 |------|-------|-----|------|-----|-------|
@@ -27,25 +213,6 @@ ssh pve   # MacBook key (~/.ssh/pve_admin)
 | 120 | truenas | QEMU | running | 16GB | vmstore (system), passthrough HDDs |
 | 130 | pbs | LXC | running | 4GB (cap) | local-zfs (OS) + NFS datastore |
 | 150 | genomics | QEMU | stopped | 28GB | **truenas-nfs** (всі диски) |
-
-## Мережева архітектура
-
-### VLAN (MikroTik RB5009UPr+S+)
-
-| VLAN | Назва | Підмережа | Gateway |
-|------|-------|-----------|---------|
-| 10 | Management | 10.10.10.0/24 | 10.10.10.1 |
-| 20 | LAN | 10.10.20.0/24 | 10.10.20.1 |
-| 30 | Servers | 10.10.30.0/24 | 10.10.30.1 |
-| 40 | IoT | 10.10.40.0/24 | 10.10.40.1 |
-| 50 | Guest | 10.10.50.0/24 | 10.10.50.1 |
-
-### Proxmox мережа
-
-- `vmbr0` → eno1 → MikroTik ether6 — VLAN-aware, VLAN 30 (Servers)
-  - `vmbr0.30` — 10.10.30.10/24 (Proxmox management)
-- `vmbr1` → enp4s0 → MikroTik ether7 — VLAN-aware, VLAN 30 (**виділений для TrueNAS**)
-  - маршрут до 10.10.20.0/24 через 10.10.30.1 (статичний)
 
 ### Сервіси в мережі — IP та веб-інтерфейси
 
