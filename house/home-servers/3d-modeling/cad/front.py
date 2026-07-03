@@ -92,6 +92,9 @@ def plan_panel():
                 P.FAN_CX + sx * P.FAN_SCREW_CC / 2,
                 P.FAN_CZ + sz * P.FAN_SCREW_CC / 2).buffer(
                 P.FAN_SCREW_D / 2 + 2.0, 16))
+    # коло лопатей вентилятора: гриль ріжеться і ПОЗА полем (права третина
+    # вентилятора за межею BR інакше дме в глуху панель)
+    blades = sg.Point(P.FAN_CX, P.FAN_CZ).buffer(18.0, 48)
     fx0, fz0, fx1, fz1 = field.bounds
     ncol = int((fx1 - fx0) / dx) + 3
     nrow = int((max(fz1 - cz0, cz0 - fz0)) / dy) + 3
@@ -105,7 +108,7 @@ def plan_panel():
                  for a in range(90, 450, 60)]
             for k in (0, 2, 4):        # 3 ромби на комірку (tumbling blocks)
                 rb = sg.Polygon([(hx, hz), V[k], V[k + 1], V[(k + 2) % 6]])
-                if not rb.intersects(field):
+                if not (rb.intersects(field) or rb.intersects(blades)):
                     continue
                 pk = rb.buffer(-ero).buffer(P.RHOMB_R, quad_segs=8) \
                        .intersection(field)
@@ -115,18 +118,29 @@ def plan_panel():
                     if g.area < 1.5 or g.buffer(-0.45).is_empty:
                         continue
                     rhomb.append(g)
+                # у колі лопатей вентилятора — ширші прорізи:
+                # межа умовного круга сама проступає в патерні
+                if rb.intersects(blades):
+                    # ребро гриля 0.9: тонше з'їдає «волосяна» чистка (0.8)
+                    # і воно хлипке для друку (урок: діра із зірочками)
+                    pk2 = rb.buffer(-(0.45 + P.RHOMB_R)) \
+                            .buffer(P.RHOMB_R, quad_segs=8) \
+                            .intersection(blades)
+                    for g in _polys(pk2):
+                        if g.area >= 1.5 and not g.buffer(-0.3).is_empty:
+                            rhomb.append(g)
 
     # ── чистка «цигликів» (2026-07-02): обірвані фрагменти ребер, що висять
     # у злитих крайових вирізах і не з'єднані з рештою решітки, — вирізаємо.
     # Метод: скелет = (поле+обвідка − кишені) мінус морф. відкриття 0.65
     # (усе тонше 1.3мм); маленькі ІЗОЛЬОВАНІ компоненти скелета → в отвори.
     rhombU = unary_union(rhomb)
-    ctx = field.buffer(3.0).difference(rhombU)
+    ctx = field.union(blades).buffer(3.0).difference(rhombU)
     opened = ctx.buffer(-0.65).buffer(0.65, quad_segs=8)
     skinny = ctx.difference(opened)
     bricks = []
     for c in _polys(skinny):
-        if c.area >= 10.0 or not c.intersects(field):
+        if c.area >= 10.0 or not c.intersects(field.union(blades)):
             continue
         # справжнє ребро тримається за товстий матеріал ≥2 кінцями;
         # «циглик» — висячий: ≤1 точка контакту
@@ -138,10 +152,17 @@ def plan_panel():
 
     # ── чистка «волосин» (2026-07-02): стінки матеріалу тонші ~0.6мм
     # (з'являлись між вирізами й ободком кнопки) — вливаються у сусідній виріз
-    mat = field.buffer(3.0).difference(unary_union(rhomb + bricks))
+    mat = field.union(blades).buffer(3.0).difference(unary_union(rhomb + bricks))
     hair = mat.difference(mat.buffer(-0.4).buffer(0.4, quad_segs=8))
     holes.extend([c for c in _polys(hair)
-                  if c.area < 5.0 and c.intersects(field)])
+                  if c.area < 5.0 and c.intersects(field.union(blades))])
+
+    # ── острівна чистка (2026-07-03): густий гриль може відрізати шматки
+    # патерну — все, що не тримається головного тіла панелі, стає вирізом
+    solid = outline.difference(unary_union(holes))
+    comps = _polys(solid)
+    main = max(comps, key=lambda c: c.area)
+    holes.extend([c for c in comps if c is not main])
 
     return _polys(outline.difference(unary_union(holes)))
 
@@ -183,15 +204,19 @@ def brow_part():
             if abs(prof.sketch.area - (expected - 2 * (r * r - math.pi * r * r / 4))) < 0.15:
                 break
         extrude(amount=bwx1 - bwx0)
-        # торці: R1 у ПЛАНІ (2D, а не 3D-філет ланцюга з ков-дугою, який падає):
-        # перетин із прямокутником, скругленим на задніх кутах
+        # торці «через впадину» (2026-07-03, правило ≤90°): у плані кінці
+        # брови вливаються в панель увігнутими чвертями R5 (дотично до панелі)
+        Rc = 5.0
         with BuildSketch(Plane.XY.offset(zb - 3)) as clip:
             with BuildLine():
-                Polyline((bwx0, y0 - 1), (bwx0, y1), (bwx1, y1),
-                         (bwx1, y0 - 1), close=True)
+                Polyline((bwx0, y0 - 1), (bwx0, y0))
+                RadiusArc((bwx0, y0), (bwx0 + Rc, y1), Rc)
+                Line((bwx0 + Rc, y1), (bwx1 - Rc, y1))
+                RadiusArc((bwx1 - Rc, y1), (bwx1, y0), Rc)
+                Polyline((bwx1, y0), (bwx1, y0 - 1), (bwx0, y0 - 1))
             make_face()
-            fillet(clip.vertices().filter_by(
-                lambda v: abs(v.Y - y1) < 1e-6), radius=r)
+            # (R1 на стику дуга↔задня грань прибрано: баг 2D-філета вершин
+            # build123d 0.11 — «Fillet algorithm failed» з коорд. поза моделлю)
         extrude(amount=P.BROW_H + 6, mode=Mode.INTERSECT)
     return bp.part
 
