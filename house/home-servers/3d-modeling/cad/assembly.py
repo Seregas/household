@@ -7,12 +7,26 @@ assembly.py — збірка корпусу: дно + фронт-панель (+
 import floor
 import front
 import walls
-from exporter import save
+from exporter import save, save_parts
 
 if __name__ == "__main__":
-    parts = [floor.build(), front.build(), walls.build()]
-    tray = parts[0]
-    for p in parts[1:]:
-        tray = tray + p           # OCC fuse
-    print("valid:", tray.is_valid, "| volume:", round(tray.volume, 1))
-    save(tray, "tray")
+    # ⚠️ OCC-fuse із філетованими стінками ненадійний (тихо викидає соліди
+    # або видає невалідний результат). Пробуємо fuse з контролем об'єму;
+    # при провалі — save_parts: compound-STEP + trimesh/manifold-STL.
+    parts = [floor.build(), walls.build(), front.build()]
+    vsum = sum(p.volume for p in parts)
+    tray = None
+    try:
+        t = parts[0]
+        for p in parts[1:]:
+            t = t + p
+        if t.is_valid and len(t.solids()) > 0 and t.volume > 0.9 * vsum:
+            tray = t
+    except Exception:
+        pass
+    if tray is not None:
+        print("valid:", tray.is_valid, "| volume:", round(tray.volume, 1))
+        save(tray, "tray")
+    else:
+        print("fuse ненадійний → compound-STEP + manifold-STL")
+        save_parts(parts, "tray")

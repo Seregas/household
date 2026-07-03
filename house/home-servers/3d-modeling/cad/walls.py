@@ -30,14 +30,14 @@ def _slope():
 
 
 def shoulder_geometry():
-    """ОПУКЛЕ плече R5: філет кута фронт-вертикаль(Y=BODY_FRONT_Y)↔нахил.
-    Центр УСЕРЕДИНІ матеріалу; дотики на вертикалі та на нахилі."""
+    """УВІГНУТЕ плече R5 (2026-07-03: «інший бік, ніж малював» — повернули
+    cove): вертикаль біля панелі до z_start, дуга вниз у дотичну до нахилу."""
     k, c0, n = _slope()
     R = P.WALL_SWOOP_R
     cy = P.BODY_FRONT_Y + R
-    cz = (k * cy + c0) - R * n           # центр НИЖЧЕ прямої нахилу
-    t_vert = (P.BODY_FRONT_Y, cz)        # дотик на вертикалі
-    t_slope = (cy - R * k / n, cz + R / n)   # дотик на нахилі
+    cz = k * cy + c0 + R * n             # центр ВИЩЕ прямої нахилу
+    t_vert = (P.BODY_FRONT_Y, cz)        # дотик на вертикалі (z_start)
+    t_slope = (cy + R * k / n, cz - R / n)   # дотик на нахилі
     return t_vert, t_slope, (cy, cz)
 
 
@@ -137,16 +137,36 @@ def _bead_band(x_outer, thickness_dir, prof):
     # передні (примикання до панелі) і задній рейл/плінтус — не чіпаємо
     S = _silhouette_shapely()
     bnd = S.exterior
-    def _crest(e):
-        c = e.center()
-        return (c.Z > 10.0 and P.BODY_FRONT_Y + 0.2 < c.Y < P.WALL_REAR_Y - 0.15
-                and bnd.distance(sg.Point(c.Y, c.Z)) < 0.25)
-    try:
-        crest = solid.edges().filter_by(_crest)
-        if crest:
-            solid = solid.fillet(P.CREST_R, list(crest))
-    except Exception as ex:
-        print("  (!) crest fillet (standalone band) не вдався:", ex)
+    # 2026-07-03: ПОСЛІДОВНІ філети (усі разом одним викликом OCC валить,
+    # хоч кожен сегмент окремо проходить — класика). Ков R1 (R1.5+ не дається
+    # через кривину R2-кова); якщо не пройде — лишається гострим (у ніші).
+    stages = [
+        ("плече", P.CREST_R, lambda c: c.Z > 60 and P.BODY_FRONT_Y + 0.2 < c.Y < -88),
+        ("нахил", P.CREST_R, lambda c: c.Z > 10 and -88 < c.Y < 78),
+        ("кут+рейл", P.CREST_R,
+         lambda c: 9.9 < c.Z < 60 and 78 < c.Y < P.WALL_REAR_Y + 0.1),
+        ("ков", 1.0,
+         lambda c: 8.2 < c.Z < 10.2
+         and P.WALL_REAR_Y - 0.05 < c.Y < P.WALL_REAR_Y + P.REAR_COVE_R + 0.05),
+        # внутрішній контур кільця (п.1 фідбеку 2026-07-03: «скруглення мало
+        # піти далі») — ребра вздовж внутрішньої межі бортика
+        ("внутрішній контур", P.CREST_R,
+         lambda c: c.Y > P.BODY_FRONT_Y + 0.2, True),
+    ]
+    Sin = S.buffer(-P.BEAD_W)
+    bnd_in = Sin.exterior if Sin.geom_type == 'Polygon' else None
+    for name, rad, cond, *inner in stages:
+        ref = bnd_in if inner else bnd
+        if ref is None:
+            continue
+        try:
+            es = solid.edges().filter_by(
+                lambda e, cond=cond, ref=ref: cond(e.center())
+                and ref.distance(sg.Point(e.center().Y, e.center().Z)) < 0.3)
+            if es:
+                solid = solid.fillet(rad, list(es))
+        except Exception as ex:
+            print(f"  (!) fillet «{name}» не вдався:", ex)
     return solid
 
 

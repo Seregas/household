@@ -84,9 +84,8 @@ def plan_panel():
     bx, bz = P.BUTTON_XZ
     field = field.difference(sg.Point(bx, bz).buffer(
         P.BUTTON_D / 2 + P.BUTTON_RIM, 32))
-    # пади вентилятора: навколо отвору ⌀38 і чотирьох кріплень
-    field = field.difference(sg.Point(P.FAN_CX, P.FAN_CZ).buffer(
-        P.FAN_HOLE_D / 2 + P.FAN_PAD_RIM, 32))
+    # вентилятор: отвір НЕ ріжеться — ромбілі йдуть наскрізь (вбудований
+    # гриль, 2026-07-03); суцільні пади лише навколо чотирьох кріплень
     for sx in (-1, 1):
         for sz in (-1, 1):
             field = field.difference(sg.Point(
@@ -113,7 +112,7 @@ def plan_panel():
                 for g in _polys(pk):
                     # ріжемо й часткові шматки по краях (границя області має
                     # проглядатись); фільтр лише проти пилу: <1.5мм², вужчі ~0.7
-                    if g.area < 1.5 or g.buffer(-0.35).is_empty:
+                    if g.area < 1.5 or g.buffer(-0.45).is_empty:
                         continue
                     rhomb.append(g)
 
@@ -140,7 +139,7 @@ def plan_panel():
     # ── чистка «волосин» (2026-07-02): стінки матеріалу тонші ~0.6мм
     # (з'являлись між вирізами й ободком кнопки) — вливаються у сусідній виріз
     mat = field.buffer(3.0).difference(unary_union(rhomb + bricks))
-    hair = mat.difference(mat.buffer(-0.3).buffer(0.3, quad_segs=8))
+    hair = mat.difference(mat.buffer(-0.4).buffer(0.4, quad_segs=8))
     holes.extend([c for c in _polys(hair)
                   if c.area < 5.0 and c.intersects(field)])
 
@@ -225,11 +224,7 @@ def build():
                      align=(Align.CENTER, Align.CENTER, Align.MIN),
                      mode=Mode.SUBTRACT)
 
-        # вентилятор: отвір ⌀38 + 4 кріплення ⌀3.2 (крок 32×32)
-        with Locations(Location((P.FAN_CX, -96.4 + 1, P.FAN_CZ), (90, 0, 0))):
-            Cylinder(P.FAN_HOLE_D / 2, P.FRONT_PANEL_T + 2,
-                     align=(Align.CENTER, Align.CENTER, Align.MIN),
-                     mode=Mode.SUBTRACT)
+        # вентилятор: 4 кріплення ⌀3.2 (крок 32×32); отвору нема — гриль
         for sx in (-1, 1):
             for sz in (-1, 1):
                 with Locations(Location(

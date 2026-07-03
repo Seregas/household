@@ -62,7 +62,7 @@ def rhombille_holes(field, anchor_u, anchor_v):
                 pk = rb.buffer(-ero).buffer(P.RHOMB_R, quad_segs=8) \
                        .intersection(field)
                 for g in _polys(pk):
-                    if g.area < 1.5 or g.buffer(-0.35).is_empty:
+                    if g.area < 1.5 or g.buffer(-0.45).is_empty:
                         continue
                     rhomb.append(g)
 
@@ -80,7 +80,7 @@ def rhombille_holes(field, anchor_u, anchor_v):
             holes.append(c)
     # «волосини»: стінки тонші ~0.6мм
     mat = field.buffer(3.0).difference(unary_union(holes))
-    hair = mat.difference(mat.buffer(-0.3).buffer(0.3, quad_segs=8))
+    hair = mat.difference(mat.buffer(-0.4).buffer(0.4, quad_segs=8))
     holes.extend([c for c in _polys(hair)
                   if c.area < 5.0 and c.intersects(field)])
     return holes
