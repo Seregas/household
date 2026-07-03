@@ -60,6 +60,12 @@ def save(part, stem, outdir="out"):
         m.fill_holes()
     if not m.is_watertight:
         m = _heal(m)
+    if not m.is_watertight:
+        # float32-раундтрип: запис STL квантує вершини і зліплює
+        # майже-збіги, після чого _heal знімає залишковий вузол
+        # (перевірено: у пам'яті не лікується, після перечитування — так)
+        m.export(stl)
+        m = _heal(trimesh.load(stl))
     if m.body_count > 1:
         # крихти-осколки fuse (<1 мм³) — лишити основне тіло
         comps = sorted(m.split(only_watertight=False),
