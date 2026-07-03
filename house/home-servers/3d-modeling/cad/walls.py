@@ -220,8 +220,11 @@ def wall_part(x_outer, thickness_dir, keepouts=()):
         offset(amount=-(P.CREST_R + 0.2), mode=Mode.SUBTRACT)
     with BuildSketch() as trim:
         add(ring_t.sketch)
-        with Locations(((P.BODY_FRONT_Y + P.WALL_REAR_Y) / 2, 45)):
-            Rectangle(P.WALL_REAR_Y - P.BODY_FRONT_Y - 0.4, 70,
+        # трим до ЗА задню межу (+0.5): відступ -0.2 лишав шпильку-залишок
+        # плити 0.2мм біля Y84.5 → щілина з філетованим бортиком (коорд.
+        # користувача 137.53/84.41/26.58); спереду відступ лишається
+        with Locations(((P.BODY_FRONT_Y + 0.2 + P.WALL_REAR_Y + 0.5) / 2, 45)):
+            Rectangle(P.WALL_REAR_Y + 0.5 - P.BODY_FRONT_Y - 0.2, 70,
                       mode=Mode.INTERSECT)
     with BuildSketch() as slab_sk:
         add(prof)

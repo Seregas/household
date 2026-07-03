@@ -82,8 +82,8 @@ def plan_panel():
                    BR, P.PANEL_H - er).union(
             sg.box(BL, P.IO_Z[0], BR, P.PANEL_H - er))
     bx, bz = P.BUTTON_XZ
-    field = field.difference(sg.Point(bx, bz).buffer(
-        P.BUTTON_D / 2 + P.BUTTON_RIM, 32))
+    btn_pad = sg.Point(bx, bz).buffer(P.BUTTON_D / 2 + P.BUTTON_RIM, 32)
+    field = field.difference(btn_pad)
     # вентилятор: отвір НЕ ріжеться — ромбілі йдуть наскрізь (вбудований
     # гриль, 2026-07-03); суцільні пади лише навколо чотирьох кріплень
     for sx in (-1, 1):
@@ -95,6 +95,12 @@ def plan_panel():
     # коло лопатей вентилятора: гриль ріжеться і ПОЗА полем (права третина
     # вентилятора за межею BR інакше дме в глуху панель)
     blades = sg.Point(P.FAN_CX, P.FAN_CZ).buffer(18.0, 48)
+    # пади гвинтів: кишеню, що ТОРКАЄТЬСЯ пада, не ріжемо взагалі (інакше
+    # обкусані дуги «скруглення на прямій» у ребрах — фідбек 2026-07-03)
+    screw_pads = unary_union([sg.Point(
+        P.FAN_CX + sx * P.FAN_SCREW_CC / 2,
+        P.FAN_CZ + sz * P.FAN_SCREW_CC / 2).buffer(P.FAN_SCREW_D / 2 + 2.0, 16)
+        for sx in (-1, 1) for sz in (-1, 1)])
     fx0, fz0, fx1, fz1 = field.bounds
     ncol = int((fx1 - fx0) / dx) + 3
     nrow = int((max(fz1 - cz0, cz0 - fz0)) / dy) + 3
@@ -110,6 +116,8 @@ def plan_panel():
                 rb = sg.Polygon([(hx, hz), V[k], V[k + 1], V[(k + 2) % 6]])
                 if not (rb.intersects(field) or rb.intersects(blades)):
                     continue
+                if rb.intersects(screw_pads) or rb.intersects(btn_pad):
+                    continue            # пади/кнопка у суцільних ромбах
                 pk = rb.buffer(-ero).buffer(P.RHOMB_R, quad_segs=8) \
                        .intersection(field)
                 for g in _polys(pk):
@@ -157,14 +165,13 @@ def plan_panel():
     holes.extend([c for c in _polys(hair)
                   if c.area < 5.0 and c.intersects(field.union(blades))])
 
-    # ── острівна чистка (2026-07-03): густий гриль може відрізати шматки
-    # патерну — все, що не тримається головного тіла панелі, стає вирізом
-    solid = outline.difference(unary_union(holes))
+    # ── фінал: set_precision зносить мікро-зигзаги/самоперетини швів
+    # (спрощення їх не брало — це топологія, не зайві точки); найбільша
+    # компонента = панель, решта — острови, відпадають самі
+    from shapely import set_precision
+    solid = set_precision(outline.difference(unary_union(holes)), 0.01)
     comps = _polys(solid)
-    main = max(comps, key=lambda c: c.area)
-    holes.extend([c for c in comps if c is not main])
-
-    return _polys(outline.difference(unary_union(holes)))
+    return [max(comps, key=lambda c: c.area)]
 
 
 def brow_part():
@@ -229,16 +236,22 @@ def build():
         with BuildSketch(Plane.XZ.offset(96.4)):
             for poly in panel_polys:
                 with BuildLine():
-                    Polyline(*list(poly.exterior.simplify(0.01).coords)[:-1],
+                    Polyline(*list(poly.exterior.simplify(0.03).coords)[:-1],
                              close=True)
                 make_face()
                 for ring in poly.interiors:
                     rp = sg.Polygon(ring)
                     if abs(rp.area) < 0.8:
                         continue          # вироджене кільце — пил, не ріжемо
+                    # 0.05: мікро-зигзаги швів вузькі↔широкі кишені гриля
+                    rp = rp.simplify(0.05).buffer(0)
+                    if rp.geom_type != 'Polygon' or rp.area < 0.8:
+                        continue
+                    coords = list(rp.exterior.coords)[:-1]
+                    if len(coords) < 3:
+                        continue
                     with BuildLine():
-                        Polyline(*list(rp.simplify(0.01).exterior.coords)[:-1],
-                                 close=True)
+                        Polyline(*coords, close=True)
                     make_face(mode=Mode.SUBTRACT)
         extrude(amount=P.FRONT_PANEL_T)
 
