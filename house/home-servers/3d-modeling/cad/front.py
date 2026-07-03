@@ -283,22 +283,27 @@ def build():
         # ── «брова» жорсткості: готова деталь (радіуси вже в ній) ──
         add(brow_part())
 
-        # ── виделка-напрямна LSI: 2 щоки з лійкою (екструзія в +Y) ──
+        # ── виделка-напрямна LSI (2026-07-03 v2): суцільний блок до
+        # 3мм від верху панелі (анкериться в брову) → ПАЗ вирізом
+        # наскрізь крізь брову; перші LSI_WEB_T=2мм від панелі залиті —
+        # перемичка, в яку ВПИРАЄТЬСЯ край плати (не діставав фронту 2мм) ──
         fz0, fz1 = P.LSI_FORK_Z
         hw = P.LSI_SLOT_W / 2
+        bw = P.LSI_FORK_W
         with BuildSketch(Plane.XZ.offset(96.4)) as fork:
-            for side in (-1, 1):
-                xi = P.LSI_X + side * hw              # внутрішня грань щоки
-                xo = xi + side * P.LSI_FORK_W         # зовнішня
-                with BuildLine():
-                    # паз прямий по всій висоті: карта заходить З ТИЛУ,
-                    # верхня лійка не потрібна (2026-07-03)
-                    Polyline((xo, fz0), (xi, fz0), (xi, fz1),
-                             (xo, fz1), (xo, fz0))
-                make_face()
+            with Locations((P.LSI_X, (fz0 + fz1) / 2)):
+                Rectangle(2 * (hw + bw), fz1 - fz0)
         extrude(fork.sketch, amount=-P.LSI_FORK_D)
-        # лійка З ТИЛУ (карта заходить не згори, а ззаду в піднятому
-        # положенні): задні торці щік скошені в плані, паз 1.7 → ~4.5
+        # паз: від перемички назад КРІЗЬ брову (задня грань брови -91.4);
+        # стеля вирізу = fz1 (вище лишаються 3мм цілої брови/панелі)
+        y_web = -96.4 + P.LSI_WEB_T
+        with Locations((P.LSI_X, (y_web + -91.3) / 2,
+                        (fz0 - 0.5 + fz1) / 2)):
+            Box(2 * hw, -91.3 - y_web, fz1 - fz0 + 0.5,
+                mode=Mode.SUBTRACT)
+        # лійка З ТИЛУ (карта заходить ззаду в піднятому положенні):
+        # задні торці щік скошені в плані, паз 1.7 → ~4.5; по Z рівно
+        # до стелі вирізу (вище — цілий матеріал брови, не чіпати)
         with BuildSketch(Plane.XY.offset(fz0 - 0.5)) as wedges:
             for side in (-1, 1):
                 xi = P.LSI_X + side * hw
@@ -308,7 +313,7 @@ def build():
                              (xi + side * 1.4, -96.4 + P.LSI_FORK_D + 0.1),
                              (xi, -96.4 + P.LSI_FORK_D + 0.1))
                 make_face()
-        extrude(wedges.sketch, amount=(fz1 - fz0) + 1.5, mode=Mode.SUBTRACT)
+        extrude(wedges.sketch, amount=(fz1 - fz0) + 0.5, mode=Mode.SUBTRACT)
 
     return fp.part
 

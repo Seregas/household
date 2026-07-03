@@ -270,15 +270,23 @@ def build():
         for rx0, rx1 in ((a1, a1 + 2.4), (b1, a0), (b0 - 2.4, b0)):
             cx = (rx0 + rx1) / 2
             w = rx1 - rx0
+            hg, ht = P.SSD_RAIL_GRIP, P.SSD_RAIL_H
+            t2 = P.SSD_RAIL_TOP / 2
             # x_dir=(-1,0,0): щоб локальний +y був ГЛОБАЛЬНИМ +Z
-            # (з (1,0,0) трапеція росла ВНИЗ — дно сягало Z-14)
+            # (з (1,0,0) профіль ріс ВНИЗ — дно сягало Z-14)
             with BuildSketch(Plane((cx, y0s - 2, P.INFILL_T),
                                    x_dir=(-1, 0, 0), z_dir=(0, 1, 0))) as tz:
-                Trapezoid(w, P.SSD_RAIL_H,
-                          90 - math.degrees(math.atan(
-                              (w - P.SSD_RAIL_TOP) / 2 / P.SSD_RAIL_H)),
-                          align=(Align.CENTER, Align.MIN))
+                with BuildLine():
+                    # прямі грані до GRIP (хват диска), вище — скіс-лійка
+                    Polyline((-w / 2, 0), (w / 2, 0), (w / 2, hg),
+                             (t2, ht), (-t2, ht), (-w / 2, hg), (-w / 2, 0))
+                make_face()
             extrude(tz.sketch, amount=(y1s - y0s) + 4)
+        # передній упор-стінка (зад відкритий: SATA-роз'єми + завід дисків)
+        sy0, sy1 = P.SSD_STOP_Y
+        with Locations(((b0 - 2.4 + a1 + 2.4) / 2, (sy0 + sy1) / 2,
+                        P.INFILL_T + P.SSD_RAIL_H / 2)):
+            Box((a1 + 2.4) - (b0 - 2.4), sy1 - sy0, P.SSD_RAIL_H)
         # шпали-опори: низ диска на Z INFILL_T+SSD_LIFT, між ними продуви
         for (sx0, sx1) in (P.SSD_SLOT_X):
             for sy in P.SSD_SLEEPER_Y:
