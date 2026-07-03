@@ -84,6 +84,11 @@ def plan_panel():
     bx, bz = P.BUTTON_XZ
     btn_pad = sg.Point(bx, bz).buffer(P.BUTTON_D / 2 + P.BUTTON_RIM, 32)
     field = field.difference(btn_pad)
+    # суцільний пад під виделку LSI (щоки кріпляться до цілої панелі)
+    fz0, fz1 = P.LSI_FORK_Z
+    field = field.difference(sg.box(
+        P.LSI_X - P.LSI_SLOT_W / 2 - P.LSI_FORK_W - 2.0, fz0 - 2.0,
+        P.LSI_X + P.LSI_SLOT_W / 2 + P.LSI_FORK_W + 2.0, fz1 + 1.0))
     # вентилятор: отвір НЕ ріжеться — ромбілі йдуть наскрізь (вбудований
     # гриль, 2026-07-03); суцільні пади лише навколо чотирьох кріплень
     for sx in (-1, 1):
@@ -191,24 +196,27 @@ def brow_part():
     bwx0, bwx1 = P.BROW_X
     r = P.BROW_R
     with BuildPart() as bp:
-        # профіль: ков — явною дугою; хвіст РІВНО до Z=zb-r (=межа суцільної
-        # верхньої смуги панелі), інакше він стирчить у зоні кишень і його
-        # видно крізь верхні вирізи (артефакт, зловлений на перерізі v10)
-        expected = P.BROW_D * P.BROW_H + 0.5 * (P.BROW_H + r) \
-            + (r * r - math.pi * r * r / 4)
-        for arc_r in (r, -r):                        # бік дуги — перевіркою площі
+        # профіль (2026-07-03 v2, «по внутрішній площині — увігнуте»):
+        # нижня грань брови ЗНИКАЄ — вся спідня частина = ВЕЛИКИЙ ков-чверть
+        # R=BROW_D від задньо-нижнього ребра дотично в панель (як намалював
+        # користувач); хвіст пірнає в панель нижче кінця кова
+        Rc = P.BROW_D                                # 5.0 — чверть на всю глибину
+        expected = P.BROW_D * P.BROW_H + 0.5 * (P.BROW_H + Rc) \
+            + (Rc * Rc - math.pi * Rc * Rc / 4)
+        for arc_r in (Rc, -Rc):                      # бік дуги — перевіркою площі
             with BuildSketch(Plane.YZ.offset(bwx0)) as prof:
                 with BuildLine():
                     Polyline((y0 - 0.5, zt), (y1, zt),   # верх (стик — без R)
-                             (y1, zb),                   # зад → низ
-                             (y0 + r, zb))               # низ до початку кова
-                    RadiusArc((y0 + r, zb), (y0, zb - r), arc_r)   # ков R1
-                    Polyline((y0, zb - r), (y0 - 0.5, zb - r),     # хвіст
+                             (y1, zb))                   # задня грань до низу
+                    RadiusArc((y1, zb), (y0, zb - Rc), arc_r)      # ков R5
+                    Polyline((y0, zb - Rc), (y0 - 0.5, zb - Rc),   # хвіст
                              (y0 - 0.5, zt))
                 make_face()
                 fillet(prof.vertices().filter_by(
-                    lambda v: abs(v.X - y1) < 1e-6), radius=r)     # задні кути
-            if abs(prof.sketch.area - (expected - 2 * (r * r - math.pi * r * r / 4))) < 0.15:
+                    lambda v: abs(v.X - y1) < 1e-6 and v.Y > zt - 1e-6),
+                    radius=r)                            # лише задній ВЕРХНІЙ кут
+            if abs(prof.sketch.area - (expected
+                    - (r * r - math.pi * r * r / 4))) < 0.15:
                 break
         extrude(amount=bwx1 - bwx0)
         # торці «через впадину» (2026-07-03, правило ≤90°): у плані кінці
@@ -274,6 +282,33 @@ def build():
 
         # ── «брова» жорсткості: готова деталь (радіуси вже в ній) ──
         add(brow_part())
+
+        # ── виделка-напрямна LSI: 2 щоки з лійкою (екструзія в +Y) ──
+        fz0, fz1 = P.LSI_FORK_Z
+        hw = P.LSI_SLOT_W / 2
+        with BuildSketch(Plane.XZ.offset(96.4)) as fork:
+            for side in (-1, 1):
+                xi = P.LSI_X + side * hw              # внутрішня грань щоки
+                xo = xi + side * P.LSI_FORK_W         # зовнішня
+                with BuildLine():
+                    # паз прямий по всій висоті: карта заходить З ТИЛУ,
+                    # верхня лійка не потрібна (2026-07-03)
+                    Polyline((xo, fz0), (xi, fz0), (xi, fz1),
+                             (xo, fz1), (xo, fz0))
+                make_face()
+        extrude(fork.sketch, amount=-P.LSI_FORK_D)
+        # лійка З ТИЛУ (карта заходить не згори, а ззаду в піднятому
+        # положенні): задні торці щік скошені в плані, паз 1.7 → ~4.5
+        with BuildSketch(Plane.XY.offset(fz0 - 0.5)) as wedges:
+            for side in (-1, 1):
+                xi = P.LSI_X + side * hw
+                with BuildLine():
+                    Polyline((xi, -96.4 + P.LSI_FORK_D + 0.1),
+                             (xi, -96.4 + P.LSI_FORK_D - 2.0),
+                             (xi + side * 1.4, -96.4 + P.LSI_FORK_D + 0.1),
+                             (xi, -96.4 + P.LSI_FORK_D + 0.1))
+                make_face()
+        extrude(wedges.sketch, amount=(fz1 - fz0) + 1.5, mode=Mode.SUBTRACT)
 
     return fp.part
 

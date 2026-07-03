@@ -30,15 +30,15 @@ def _slope():
 
 
 def shoulder_geometry():
-    """ОПУКЛЕ плече R5 (2026-07-03 фінал, правило користувача: кут >90° —
-    «горб»): філет кута вертикаль(панель)↔нахил, вертикаль ПЛАВНО перетікає
-    в кромку БЕЗ піка (увігнутий варіант давав «горб» над лінією нахилу)."""
+    """УВІГНУТЕ плече R5 (2026-07-03 ФІНАЛ v3, правило v2: стик кромки з
+    панеллю = внутрішній кут → впадина). «Горб» першої ітерації був не від
+    силуету, а від пофрагментного філета гребеня (шви) — вилікувано one-shot."""
     k, c0, n = _slope()
     R = P.WALL_SWOOP_R
     cy = P.BODY_FRONT_Y + R
-    cz = k * cy + c0 - R * n             # центр НИЖЧЕ прямої (в матеріалі)
-    t_vert = (P.BODY_FRONT_Y, cz)        # дотик на вертикалі
-    t_slope = (cy - R * k / n, cz + R / n)   # дотик на нахилі
+    cz = k * cy + c0 + R * n             # центр ВИЩЕ прямої нахилу
+    t_vert = (P.BODY_FRONT_Y, cz)        # дотик на вертикалі (z_start)
+    t_slope = (cy + R * k / n, cz - R / n)   # дотик на нахилі
     return t_vert, t_slope, (cy, cz)
 
 
@@ -142,11 +142,13 @@ def _bead_band(x_outer, thickness_dir, prof):
     # хоч кожен сегмент окремо проходить — класика). Ков R1 (R1.5+ не дається
     # через кривину R2-кова); якщо не пройде — лишається гострим (у ніші).
     stages = [
-        ("кромка+рейл", P.CREST_R,
+        # єдиний ланцюг ВКЛЮЧНО з ковом (точка 137.9/84.52/9.84 — нескруглений
+        # низ рейла); якщо впаде — fallback нижче підхопить окремо
+        ("кромка+рейл+ков", P.CREST_R,
+         lambda c: c.Z > 8.1 and P.BODY_FRONT_Y + 0.2 < c.Y
+         < P.WALL_REAR_Y + P.REAR_COVE_R + 0.05),
+        ("кромка+рейл (fallback)", P.CREST_R,
          lambda c: c.Z > 9.9 and P.BODY_FRONT_Y + 0.2 < c.Y < P.WALL_REAR_Y + 0.1),
-        ("ков", 1.0,
-         lambda c: 8.2 < c.Z < 10.2
-         and P.WALL_REAR_Y - 0.05 < c.Y < P.WALL_REAR_Y + P.REAR_COVE_R + 0.05),
         # внутрішній контур кільця (п.1 фідбеку 2026-07-03: «скруглення мало
         # піти далі») — ребра вздовж внутрішньої межі бортика
         ("внутрішній контур", P.CREST_R,
@@ -154,7 +156,10 @@ def _bead_band(x_outer, thickness_dir, prof):
     ]
     Sin = S.buffer(-P.BEAD_W)
     bnd_in = Sin.exterior if Sin.geom_type == 'Polygon' else None
+    done_main = False
     for name, rad, cond, *inner in stages:
+        if "fallback" in name and done_main:
+            continue
         ref = bnd_in if inner else bnd
         if ref is None:
             continue
@@ -164,9 +169,84 @@ def _bead_band(x_outer, thickness_dir, prof):
                 and ref.distance(sg.Point(e.center().Y, e.center().Z)) < 0.3)
             if es:
                 solid = solid.fillet(rad, list(es))
+                if name.startswith("кромка"):
+                    done_main = True
         except Exception as ex:
             print(f"  (!) fillet «{name}» не вдався:", ex)
     return solid
+
+
+
+
+def _cove_prism(origin, line_dir, nA, nB, length, R, e=0.3):
+    """Стрічка-ков: чверть-заповнення внутрішнього кута вздовж прямої.
+    origin — точка на лінії стику; nA/nB — одиничні напрямки ВЗДОВЖ граней
+    від кута; line_dir — напрямок лінії; length — довжина."""
+    import numpy as np
+    nA = np.array(nA, float); nB = np.array(nB, float)
+    d = np.array(line_dir, float); d /= np.linalg.norm(d)
+    pl = Plane(origin=tuple(origin), x_dir=tuple(nA), z_dir=tuple(d))
+    target = R * R * (1 - math.pi / 4)
+    # весь профіль втоплено на e у кут: кінці дуги (дотичні до граней!)
+    # ховаються всередину матеріалу, поверхня виходить трансверсально —
+    # інакше дотична лінія (напр. Z7 на стінці) дає нон-маніфолдний STL.
+    # e — глибина втоплення; сусіднім стрічкам давати РІЗНЕ e, інакше їхні
+    # поховані кромки знову збігаються лінія-в-лінію (нон-маніфолд).
+    for s in (R, -R):
+        try:
+            with BuildSketch(pl) as sk:
+                with BuildLine():
+                    Polyline((-e, -e), (R - e, -e))
+                    RadiusArc((R - e, -e), (-e, R - e), s)
+                    Line((-e, R - e), (-e, -e))
+                make_face()
+            if abs(sk.sketch.area - target) < 0.05:
+                break
+        except Exception:
+            continue
+    with BuildPart() as cp:
+        extrude(sk.sketch, amount=length)
+    return cp.part
+
+
+def wall_coves(x_outer, tdir):
+    """Кови R2 прямих примикань бортика (перша черга): плінтус (стінка↔верх,
+    бік↔рама), рубчик (панель↔бік, стінка↔внутр. грань), рейл (стінка↔внутр.).
+    Мітри в кутах — перетином сусідніх стрічок (union)."""
+    R = P.COVE_R
+    xin = x_outer + tdir * P.WALL_T          # внутрішня грань стінки
+    xb = x_outer + tdir * P.BEAD_W           # внутрішня межа бортика
+    zt_pl = P.BEAD_W                         # верх плінтуса (Z5)
+    zfr = P.FRAME_T                          # верх рами (Z3)
+    y_rib = P.BODY_FRONT_Y + P.BEAD_W        # внутр. грань рубчика (-91.4)
+    y_rail = P.WALL_REAR_Y - P.BEAD_W        # внутр. межа рейла (79.5)
+    parts = []
+    # 1) плінтус-верх ↔ стінка (лінія вздовж Y на (xin, zt_pl))
+    parts.append(_cove_prism((xin, y_rib - R, zt_pl), (0, 1, 0),
+                             (tdir, 0, 0) and (0, 0, 1) or None, None, 0, R)
+                 if False else
+                 _cove_prism((xin, y_rib - R, zt_pl), (0, 1, 0),
+                             (0, 0, 1), (tdir, 0, 0),
+                             (y_rail + R) - (y_rib - R), R))
+    # 2) плінтус-бік ↔ рама (лінія вздовж Y на (xb, zfr));
+    # e=0.45 ≠ 0.3 — кромка стрічки 1 сідала точно на кромку 2 (BEAD_W-WALL_T=R)
+    parts.append(_cove_prism((xb, y_rib - R, zfr), (0, 1, 0),
+                             (0, 0, 1), (tdir, 0, 0),
+                             (y_rail + R) - (y_rib - R), R, e=0.45))
+    # 3) рубчик: бічна грань (xb) ↔ панель (лінія вздовж Z)
+    parts.append(_cove_prism((xb, P.BODY_FRONT_Y, zfr), (0, 0, 1),
+                             (0, 1, 0), (tdir, 0, 0), 60.0, R))
+    # 4) рубчик: внутрішня грань (y_rib) ↔ стінка (вздовж Z)
+    parts.append(_cove_prism((xin, y_rib, zt_pl - R), (0, 0, 1),
+                             (0, 1, 0), (tdir, 0, 0), 58.0, R))
+    # 5) рейл: внутрішня межа (y_rail) ↔ стінка (вздовж Z, до кромки);
+    # старт утоплений на 0.6 у плінтус — дотична мітра давала діри STL
+    parts.append(_cove_prism((xin, y_rail, zt_pl - R - 0.6), (0, 0, 1),
+                             (0, -1, 0), (tdir, 0, 0), 16.6, R))
+    out = parts[0]
+    for q in parts[1:]:
+        out = out + q
+    return out
 
 
 def rear_ridge():
@@ -271,6 +351,7 @@ def build():
         extrude(amount=P.WALL_T + P.BEAD_W + 2)
     left = (left - cut.part).fix()   # .fix() після вирізу: інакше fuse
                                      # мовчки викидає «крихкий» солід
+    left = left + wall_coves(P.WALL_L_X, +1)
 
     # проріз під тіло 40-мм вентилятора у ПРАВІЙ стінці: рамка проходить
     # крізь плиту (права грань вентилятора врівень із зовнішньою площиною);
@@ -279,10 +360,12 @@ def build():
     with BuildPart() as fcut:
         with BuildSketch(Plane.YZ.offset(P.WALL_R_X - P.WALL_T - P.BEAD_W - 1)):
             with Locations((P.BODY_FRONT_Y + P.FAN_D / 2, P.FAN_CZ)):
-                RectangleRounded(P.FAN_D + 2 * clr, P.FAN_W + 2 * clr,
-                                 radius=2.0)
+                # ПРЯМИЙ прямокутник: бічний профіль вентилятора (10×40)
+                # гострокутний — R2 у ніші не давав рамці сісти (фідбек)
+                Rectangle(P.FAN_D + 2 * clr, P.FAN_W + 2 * clr)
         extrude(amount=P.WALL_T + P.BEAD_W + 3)
     right = (right - fcut.part).fix()
+    right = right + wall_coves(P.WALL_R_X, -1)
 
     # МІСТОК за вентилятором (2026-07-03): відновлює неперервність стінки
     # через проріз і приймає праву пару гвинтів (M3×16 наскрізь:

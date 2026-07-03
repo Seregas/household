@@ -112,6 +112,17 @@ def plan_geometry():
                     continue                    # фрагмент біля постаменту → суцільний
                 holes.append(g)
 
+    # суцільні смуги під рейками SSD (соти їх обходять; під тілами дисків
+    # соти лишаються — обдув знизу)
+    rail_strips = []
+    (a0, a1), (b0, b1) = P.SSD_SLOT_X
+    y0s, y1s = P.SSD_Y[0] - 2, P.SSD_Y[1] + 2
+    for rx0, rx1 in ((a1, a1 + 2.6), (b1, a0), (b0 - 2.6, b0)):
+        rail_strips.append(sg.box(rx0, y0s, rx1, y1s))
+    railsU = unary_union(rail_strips)
+    holes = [h.difference(railsU) for h in holes]
+    holes = [g for h in holes for g in _polys(h)
+             if g.area > 10.0 and not g.buffer(-0.6).is_empty]
     voids = unary_union([unary_union(holes), windows])
     solid = interior.difference(voids)
 
@@ -156,8 +167,11 @@ def plan_geometry():
                 if g.area > 2.0:
                     pockets.append(g)
 
-    crown = zone.difference(unary_union(pockets))
+    from shapely import set_precision
+    crown = set_precision(zone.difference(unary_union(pockets)), 0.01)
     crown_polys = [g for g in _polys(crown) if g.area > 3.0]
+    holes = [g for h in holes for g in _polys(set_precision(h, 0.01))
+             if g.area > 1.0]
     return holes, crown_polys
 
 
@@ -225,8 +239,14 @@ def build():
                     Polyline(*list(poly.exterior.coords)[:-1], close=True)
                 make_face()
                 for ring in poly.interiors:
+                    rp = sg.Polygon(ring)
+                    if abs(rp.area) < 0.8:
+                        continue
+                    rp = rp.simplify(0.02).buffer(0)
+                    if rp.geom_type != 'Polygon' or rp.area < 0.8:
+                        continue
                     with BuildLine():
-                        Polyline(*list(ring.coords)[:-1], close=True)
+                        Polyline(*list(rp.exterior.coords)[:-1], close=True)
                     make_face(mode=Mode.SUBTRACT)
         extrude(amount=P.TRI_RIB_H)
 
@@ -242,6 +262,29 @@ def build():
                 with Locations(((wx0 + wx1) / 2, (wy0 + wy1) / 2)):
                     RectangleRounded(wx1 - wx0, wy1 - wy0, radius=P.RAM_WIN_R)
             extrude(amount=1 + P.FRAME_T + 1, mode=Mode.SUBTRACT)
+
+        # ── рейки SSD: 3 трапеції вздовж Y (скошені боки = самозавід);
+        # диски ПРИПІДНЯТІ на шпалах — під ними канал для повітря ──
+        (a0, a1), (b0, b1) = P.SSD_SLOT_X
+        y0s, y1s = P.SSD_Y
+        for rx0, rx1 in ((a1, a1 + 2.4), (b1, a0), (b0 - 2.4, b0)):
+            cx = (rx0 + rx1) / 2
+            w = rx1 - rx0
+            # x_dir=(-1,0,0): щоб локальний +y був ГЛОБАЛЬНИМ +Z
+            # (з (1,0,0) трапеція росла ВНИЗ — дно сягало Z-14)
+            with BuildSketch(Plane((cx, y0s - 2, P.INFILL_T),
+                                   x_dir=(-1, 0, 0), z_dir=(0, 1, 0))) as tz:
+                Trapezoid(w, P.SSD_RAIL_H,
+                          90 - math.degrees(math.atan(
+                              (w - P.SSD_RAIL_TOP) / 2 / P.SSD_RAIL_H)),
+                          align=(Align.CENTER, Align.MIN))
+            extrude(tz.sketch, amount=(y1s - y0s) + 4)
+        # шпали-опори: низ диска на Z INFILL_T+SSD_LIFT, між ними продуви
+        for (sx0, sx1) in (P.SSD_SLOT_X):
+            for sy in P.SSD_SLEEPER_Y:
+                with Locations(((sx0 + sx1) / 2, sy,
+                                P.INFILL_T + P.SSD_LIFT / 2)):
+                    Box(sx1 - sx0 + 1.0, P.SSD_SLEEPER_W, P.SSD_LIFT)
 
         # ── наскрізні отвори ⌀4 ──
         for (x, y) in P.STANDOFF_XY.values():

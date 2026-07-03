@@ -2,6 +2,39 @@
 import trimesh, numpy as np
 from build123d import export_step, export_stl
 
+def _heal(m):
+    """Точкові дефекти OCC-тесселяції: зварити вершини відкритих/нон-маніфолдних
+    ребер у радіусі 0.05, прибрати вироджені й дубльовані грані, залатати діри.
+    Геометричні (лінійні) дефекти так НЕ лікуються — їх чинити у моделі."""
+    import collections
+    from scipy.spatial import cKDTree
+    for _ in range(3):
+        if m.is_watertight:
+            break
+        cnt = collections.Counter(map(tuple, m.edges_sorted))
+        bad = [k for k, v in cnt.items() if v != 2]
+        if not bad:
+            break
+        vids = np.unique(np.array(bad).ravel())
+        pts = m.vertices[vids]
+        v = m.vertices.copy()
+        for i, j in cKDTree(pts).query_pairs(0.05):
+            a, b = vids[i], vids[j]
+            mid = (v[a] + v[b]) / 2
+            v[a] = mid; v[b] = mid
+        m = trimesh.Trimesh(vertices=v, faces=m.faces, process=False)
+        m.merge_vertices(digits_vertex=4)
+        m.update_faces(m.nondegenerate_faces())
+        m.update_faces(m.unique_faces())
+        # дубль-грані з протилежною орієнтацією (злиплі трикутники)
+        srt = np.sort(m.faces, axis=1)
+        _, first = np.unique(srt, axis=0, return_index=True)
+        keep = np.zeros(len(m.faces), bool); keep[first] = True
+        m.update_faces(keep)
+        m.fill_holes()
+    return m
+
+
 def save(part, stem, outdir="out"):
     import os
     os.makedirs(outdir, exist_ok=True)
@@ -15,6 +48,8 @@ def save(part, stem, outdir="out"):
     m.update_faces(m.unique_faces())
     if not m.is_watertight:
         m.fill_holes()
+    if not m.is_watertight:
+        m = _heal(m)
     m.fix_normals()
     m.export(stl)
     print(f"  STEP: {step}")
