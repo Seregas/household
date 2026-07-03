@@ -194,6 +194,84 @@ ssh pve   # MacBook key (~/.ssh/pve_admin) — налаштувати на но�
 
 ---
 
+## Сесія 2026-06-30 — NAS bare-metal (CWWK CW-NAS-ADLP): збірка й перші кроки
+
+**Залізо (підтверджено по етикетках/memtest):**
+- Плата **CWWK CW-NAS-ADLP**, CPU **i5-12450H** (8 фіз. ядер / 12 потоків — 4P+HT + 4E).
+  Вхід живлення: DC-in **5.5×2.5 мм center-positive** АБО ATX 8-pin — це ОДИН вхід 12–24 В, два роз'єми (не дві шини).
+- RAM: **Kingston FURY Impact DDR5 2×16 = 32 ГБ (KF556S40-16)**, двоканал, працює на 4788 MT/s (платформний максимум ~4800; модулі заводські 5600 CL40 — сідають до платформи). Не-ECC.
+- HBA: **LSI 9217-8i** у PCIe x8. Кулер HBA (3-pin) → **SYSFAN3** (крутиться 100%, PWM нема — для гарячого 9217 норм). ⚠️ Перевірити IT-mode (диски мають бути сирі, не RAID).
+- PSU: **Enhance ENP-7660B** (один блок). Плата живиться ATX 8-pin від PSU; для старту замкнено **PS_ON на 24-pin PSU** (на платі PS_ON нема — це не звичайна ATX-мати). Для headless: JATX_AT 1-2 АБО BIOS Restore AC Power Loss = Power On.
+- KVM: **JetKVM** (чекаємо PoE-версію). Живити від **PoE RB5009**, НЕ від NAS — щоб міг піднімати вимкнену машину. ISO-mount по мережі → встановлення ОС без фізичної флешки. На SFP+ нема WoL → KVM = віддалена «кнопка живлення».
+
+**memtest86 v11.7 (на цьому ж залізі):** 4 проходи, **0 помилок**. CPU max 72°C / RAM max 75°C (пік на Block move), із запасом до стелі (CPU 95 / RAM 85).
+
+**КАРТА ДИСКІВ (карта відмов — звірити в TrueNAS Storage → Disks та `/dev/disk/by-id/`):**
+
+| Диск | Роль | Серійник | WWN | SAS-кабель | Лоток |
+|------|------|----------|-----|-----------|-------|
+| Samsung SM863 120GB (MZ-7KM1200) | boot-mirror | S2HPNX0HB06060 | 5002538C4048A088 | SAS0 | HDD5 |
+| Intel S3500 120GB (SSDSC2BB120G4) | boot-mirror | CVWL422401RN120LGN | 55CD2E404BC76A83 | SAS1 | HDD9 |
+| Toshiba MG10ADA800E 8TB | tank8TB-mirror (data) | 8572A048FTUJ | — | (звірити) | (звірити) |
+| Toshiba MG10ADA800E 8TB | tank8TB-mirror (data) | X4U0A07MFTUJ | — | (звірити) | (звірити) |
+
+- SAS-маркування: **SAS0 = лотки HDD5-8, SAS1 = HDD9-12** (9217 обслуговує 5-12).
+- Обидва SSD enterprise з PLP (power-loss protection) — правильно під ZFS boot. Здоров'я: Intel 96%, Samsung 99%.
+- Принцип SAS: кожне дзеркало рознесене по двох кабелях/портах (відмова кабелю/порту не вбиває обидві половини).
+
+**ЖИВЛЕННЯ ДИСКІВ (ENP-7660B, 2 SATA-кабелі × 2 роз'єми):**
+- Рознести по членах дзеркал (НЕ «boot на один кабель, data на інший» — це вбило б data-дзеркало при відмові кабелю):
+  - **SATA-кабель 1:** Samsung (boot) + Toshiba #1
+  - **SATA-кабель 2:** Intel (boot) + Toshiba #2
+- Причина: захист від відмови кабелю/роз'єму + балансування spin-up струму 8TB HDD. PSU один → це НЕ захист від смерті PSU (для того потрібен резервований блок), лише cable/connector-рівень.
+
+**BIOS застосовано (цією сесією):**
+- **Restore AC Power Loss → Power On** (Super IO / F81804) — автостарт після блекауту (headless).
+- **CSM → UEFI only**; **Secure Boot → Disabled** (для ZFS; перемикач розблоковується заданням Administrator Password на AMI).
+- **ACPI Auto Configuration → Disable → ACPI Sleep State → Disabled** (NAS не спить; нема WoL на SFP+).
+- **Intel DTT → Disabled** (ноутбучна фіча, під Linux шкодить передбачуваності лімітів).
+- **VT-d / Intel VMX → Enabled** (на майбутнє, прокидання).
+- **C-states + SpeedStep + Speed Shift/HWP → Enabled** (idle-економія 24/7); Turbo на розсуд.
+- **Hardware Monitor Fan Mode → Automatic**; **TPM (fTPM/PTT) → Enabled** (НЕ робити Clear).
+- Boot performance mode — не чіпати (впливає лише на POST).
+
+**ОС: bare-metal TrueNAS SCALE** (не VM, не Proxmox) — Етап 6. Прибирає passthrough/ZFS-on-ZFS, звільняє ~16 ГБ RAM на Proxmox-ноді (AM5D4ID2).
+
+**ОНОВЛЕННЯ 30.06.2026 (кінець сесії — система піднята):**
+- ✅ TrueNAS SCALE **25.10.4** встановлено на boot-mirror (Intel sda + Samsung sdb, 111.79 GiB кожен). У інсталяторі обидва SSD позначені, 8TB були ФІЗИЧНО ВІД'ЄДНАНІ (щоб не зачепити). Samsung мав `isw_raid_member` — TrueNAS затер при інсталяції.
+- ✅ **LSI 9217-8i дошито UEFI boot-ROM** (`sas2flash.efi -b x64sas2.rom`, firmware НЕ чіпали). Тепер banner LSI на POST є, boot-запис є, система вантажиться нативно з дзеркала за HBA. Деталі — `lsi-9217-flash-guide.md`. **SAS Address: 500605B005CE13E0** (з наклейки).
+- ✅ Система здорова, HBA + диски бачаться з ОС. NAS поки на столі, в мережу НЕ підключений.
+
+**НАСТУПНІ КРОКИ (NAS) — коли в стійці:**
+- [ ] Підключити 2× Toshiba 8TB (рознести SAS0/SAS1 + SATA-кабелі за схемою вище), звірити серійники з таблицею.
+- [ ] **badblocks / довгий SMART** на обидва 8TB ПЕРЕД імпортом (з консолі: `smartctl`, бо в 25.10 SMART-UI прибрано).
+- [ ] 10G DAC → CRS305 (access VLAN 30), IP 10.10.30.20 (nas.home.arpa). До того — веб-морда по DHCP-IP з тимчасового кабелю.
+- [x] ~~Встановити TrueNAS на boot-mirror~~ — ЗРОБЛЕНО 30.06.
+- [ ] ⚠️ **`tank8TB-mirror` — ІМПОРТ (Storage → Import Pool), НЕ створювати!** Дані на дисках. Звірити серійники перед будь-якою дією.
+- [ ] Мережа: **10G SFP+ (82599ES) → CRS305 sfp2/3/4**, access **VLAN 30**; IP **10.10.30.20** (nas.home.arpa, як стара VM).
+- [ ] Після: NFS/PBS-прив'язки до Proxmox; відновити SMB / Time Machine / Jellyfin (UID 568, ACL).
+
+---
+
+## Сесія 2026-06-30 (ч.2) — мережа під NAS (DHCP reservation + access VLAN 30)
+
+**RB5009 — DHCP reservation для NAS (зроблено через `ssh home-router`):**
+- Статичний lease: **`10.10.30.20` ↔ MAC `A8:B8:E0:06:27:B3`**, server `dhcp30`, comment "nas truenas (SFP+ port1)".
+- NAS має 2× SFP+ (82599ES), MAC портів послідовні: **port1 `...27B3`** (зарезервований), port2 `...27B4` (вільний). DAC вмикати ЗАВЖДИ в port1, інакше адреса буде не та.
+- Інтерфейс у TrueNAS лишити на DHCP (адресою керуємо з роутера, статику в NAS НЕ дублювати).
+- DHCP-сервери RB5009: dhcp10/20/30/40/50 (vlanXX-*, poolXX-*). VLAN 30 = `dhcp30`/`vlan30-srv`/`pool30-srv` (пул .200-254; .20 — поза пулом, тому ідеально під reservation).
+
+**CRS305 (тепер identity `10GbSwitch`) — access VLAN 30 на sfp-sfpplus2:**
+- Бридж `bridge` (rstp, vlan-filtering=yes). Trunk = `sfp-sfpplus1` (tagged усі VLAN), ether1 = management (НЕ в бриджі).
+- Додано `sfp-sfpplus2` у бридж: **PVID 30, frame-types=admit-only-untagged-and-priority-tagged** (access під NAS).
+- VLAN 30 ВИНЕСЕНО в окремий bridge-vlan запис: `vlan-ids=30 tagged=sfp-sfpplus1 untagged=sfp-sfpplus2`. Решта (10,20,40,45,50) лишились у спільному записі (tagged sfp-sfpplus1). Причина: не можна додати untagged лише для 30, поки 30 «склеєний» з іншими в одному записі.
+- Ланцюг VLAN 30: роутер(tagged)→trunk→свіч→sfp-sfpplus2(untagged)→NAS. `current-untagged` порожній доки порт неактивний (`I`) — норма, оживе з DAC.
+- ⚠️ Свіч SSH/аліас ДОСІ TODO: Mac (VLAN 20) → 10.10.10.2 по SSH = таймаут (mgmt VLAN 10 закритий). Конфіг свіча йде через **Winbox (MAC-telnet)**, Сергій сам. Claude НЕ має доступу до свіча (підтверджено: known_hosts 0 записів про 10.10.10.2). Аліаси з іменами поки не чіпаємо (свіч один).
+
+**ЩОБ ПІДНЯТИ NAS (фізика, без команд):** DAC `10GbSwitch sfp-sfpplus2` ↔ NAS **port1** (`...27B3`) → увімкнути → автоматом `10.10.30.20` → `https://10.10.30.20` з MacBook → далі ІМПОРТ tank8TB-mirror.
+
+---
+
 # АРХІВ: попередня система (TOPC PHX) — виведена з роботи 24.06.2026
 
 > ⚠️ **Усе нижче описує СТАРУ систему** (TOPC PHX mini-PC, Ryzen 7 7840HS), яка **мігрована** на
