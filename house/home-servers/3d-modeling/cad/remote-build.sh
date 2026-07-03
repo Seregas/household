@@ -5,7 +5,7 @@
 # Синхронізує cad/*.py туди, збирає, забирає out/ назад.
 set -e
 HOST=home-srv
-RDIR="~/3d-modeling"
+RDIR="~/Projects/Household/house/home-servers/3d-modeling"
 cd "$(dirname "$0")/.."
 targets=("$@")
 [ ${#targets[@]} -eq 0 ] && targets=(floor front walls assembly)

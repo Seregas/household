@@ -24,6 +24,16 @@ def _heal(m):
             v[a] = mid; v[b] = mid
         m = trimesh.Trimesh(vertices=v, faces=m.faces, process=False)
         m.merge_vertices(digits_vertex=4)
+        # нульові ребра (затиск-точка: 2 різні вершини в одній точці,
+        # яких merge не склеїв) — прибрати грані, що їх містять
+        cnt2 = collections.Counter(map(tuple, m.edges_sorted))
+        zero = {e for e, n in cnt2.items() if n != 2
+                and np.linalg.norm(m.vertices[e[0]] - m.vertices[e[1]]) < 1e-3}
+        if zero:
+            keep = [i for i, f in enumerate(m.faces)
+                    if not any(tuple(sorted((f[a], f[(a + 1) % 3]))) in zero
+                               for a in range(3))]
+            m.update_faces(np.array(keep))
         m.update_faces(m.nondegenerate_faces())
         m.update_faces(m.unique_faces())
         # дубль-грані з протилежною орієнтацією (злиплі трикутники)
@@ -50,6 +60,12 @@ def save(part, stem, outdir="out"):
         m.fill_holes()
     if not m.is_watertight:
         m = _heal(m)
+    if m.body_count > 1:
+        # крихти-осколки fuse (<1 мм³) — лишити основне тіло
+        comps = sorted(m.split(only_watertight=False),
+                       key=lambda c: -abs(c.volume))
+        if all(abs(c.volume) < 1.0 for c in comps[1:]):
+            m = comps[0]
     m.fix_normals()
     m.export(stl)
     print(f"  STEP: {step}")
@@ -81,6 +97,13 @@ def save_parts(parts, stem, outdir="out"):
     u = trimesh.boolean.union(meshes, engine='manifold')
     u.merge_vertices(digits_vertex=4)
     u.update_faces(u.nondegenerate_faces())
+    if not u.is_watertight:
+        u = _heal(u)
+    if u.body_count > 1:
+        comps = sorted(u.split(only_watertight=False),
+                       key=lambda c: -abs(c.volume))
+        if all(abs(c.volume) < 1.0 for c in comps[1:]):
+            u = comps[0]
     u.fix_normals()
     u.export(stl)
     print(f"  STEP: {step} (compound, {len(parts)} солідів)")
