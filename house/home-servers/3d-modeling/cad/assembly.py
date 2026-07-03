@@ -6,10 +6,11 @@ assembly.py — збірка корпусу: дно + фронт-панель (+
 """
 import floor
 import front
+import walls
 from exporter import save
 
 if __name__ == "__main__":
-    parts = [floor.build(), front.build()]
+    parts = [floor.build(), front.build(), walls.build()]
     tray = parts[0]
     for p in parts[1:]:
         tray = tray + p           # OCC fuse

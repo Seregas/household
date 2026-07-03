@@ -84,6 +84,15 @@ def plan_panel():
     bx, bz = P.BUTTON_XZ
     field = field.difference(sg.Point(bx, bz).buffer(
         P.BUTTON_D / 2 + P.BUTTON_RIM, 32))
+    # пади вентилятора: навколо отвору ⌀38 і чотирьох кріплень
+    field = field.difference(sg.Point(P.FAN_CX, P.FAN_CZ).buffer(
+        P.FAN_HOLE_D / 2 + P.FAN_PAD_RIM, 32))
+    for sx in (-1, 1):
+        for sz in (-1, 1):
+            field = field.difference(sg.Point(
+                P.FAN_CX + sx * P.FAN_SCREW_CC / 2,
+                P.FAN_CZ + sz * P.FAN_SCREW_CC / 2).buffer(
+                P.FAN_SCREW_D / 2 + 2.0, 16))
     fx0, fz0, fx1, fz1 = field.bounds
     ncol = int((fx1 - fx0) / dx) + 3
     nrow = int((max(fz1 - cz0, cz0 - fz0)) / dy) + 3
@@ -215,6 +224,20 @@ def build():
             Cylinder(P.BUTTON_D / 2, P.FRONT_PANEL_T + 2,
                      align=(Align.CENTER, Align.CENTER, Align.MIN),
                      mode=Mode.SUBTRACT)
+
+        # вентилятор: отвір ⌀38 + 4 кріплення ⌀3.2 (крок 32×32)
+        with Locations(Location((P.FAN_CX, -96.4 + 1, P.FAN_CZ), (90, 0, 0))):
+            Cylinder(P.FAN_HOLE_D / 2, P.FRONT_PANEL_T + 2,
+                     align=(Align.CENTER, Align.CENTER, Align.MIN),
+                     mode=Mode.SUBTRACT)
+        for sx in (-1, 1):
+            for sz in (-1, 1):
+                with Locations(Location(
+                        (P.FAN_CX + sx * P.FAN_SCREW_CC / 2, -96.4 + 1,
+                         P.FAN_CZ + sz * P.FAN_SCREW_CC / 2), (90, 0, 0))):
+                    Cylinder(P.FAN_SCREW_D / 2, P.FRONT_PANEL_T + 2,
+                             align=(Align.CENTER, Align.CENTER, Align.MIN),
+                             mode=Mode.SUBTRACT)
 
         # ── «брова» жорсткості: готова деталь (радіуси вже в ній) ──
         add(brow_part())
