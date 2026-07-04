@@ -83,11 +83,10 @@ def _silhouette_shapely():
     pts.append(ts2)
     pts += _arc_pts(cc2, P.WALL_EDGE_CORNER_R, ts2, tv2)
     pts.append((P.WALL_REAR_Y, zt + rc))
-    # 04.07 v3: замість дотичного R2-кова — прямий 45°-скіс на бортик.
-    # Дотичний ков математично вбивав філети (R2-кулька в R2-жолобі =
-    # no-op) і породив лавину милиць (лофт/карв/план-циліндри). Скіс
-    # філетиться ланцюгом З КУЛЬКАМИ на кутах — вузол = одна операція.
-    pts.append((P.WALL_REAR_Y + rc, zt))
+    # 04.07 v4: ков R4 (REAR_COVE_R) — філет R2 по ньому НЕ вироджується
+    # (на відміну від R2-кова), тож ланцюг гребеня їде через увесь кут
+    pts += _arc_pts((P.WALL_REAR_Y + rc, zt + rc), rc,
+                    (P.WALL_REAR_Y, zt + rc), (P.WALL_REAR_Y + rc, zt))
     # 04.07: БЕЗ клаптя — тор кутового револьва бортика в дотичній
     # площині Y86.5 збігається з прямим філетом смуги ТОЧНО, а клапоть
     # 0.5 за дотичною давав клин-обрив (137.7/87/7.8). T-стик дотичної
@@ -119,8 +118,8 @@ def _profile_sketch():
                             Line(ts, ts2)
                             RadiusArc(ts2, tv2, s2 * P.WALL_EDGE_CORNER_R)
                             Line(tv2, (P.WALL_REAR_Y, zt + rc))
-                            Line((P.WALL_REAR_Y, zt + rc),
-                                 (P.WALL_REAR_Y + rc, zt))
+                            RadiusArc((P.WALL_REAR_Y, zt + rc),
+                                      (P.WALL_REAR_Y + rc, zt), s3 * rc)
                             Polyline((P.WALL_REAR_Y + rc, zt),
                                      (P.WALL_REAR_Y + rc, 0), (yf, 0))
                         make_face()
@@ -175,7 +174,7 @@ def _bead_band(x_outer, thickness_dir, prof):
         at_end = c.Y > y_hi - 0.7 or c.Y < yf_lo + 0.7
         if bb.size.Z > 6.0 and at_end:
             return False                     # торцеві вертикалі
-        if bb.size.X > 1.0 and (c.Y > 86.3 or c.Y < yf_lo + 0.7):
+        if bb.size.X > 1.0 and (c.Y > y_hi - 0.4 or c.Y < yf_lo + 0.7):
             return False                     # поперечка лише на торці зла
         return True
 
@@ -331,7 +330,7 @@ def build():
         # жертовні перемички вирізу кулера: міст 85мм → 3 прольоти по ~28
         with BuildPart() as ribs:
             y0k, y1k = P.COOLER_CUT_Y
-            for k in (1 / 3, 2 / 3):
+            for k in (0.25, 0.5, 0.75):
                 with Locations((P.WALL_L_X + P.WALL_T / 2,
                                 y0k + k * (y1k - y0k),
                                 (P.COOLER_CUT_Z[0] + P.COOLER_CUT_Z[1]) / 2)):

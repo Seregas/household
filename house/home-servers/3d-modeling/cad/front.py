@@ -43,7 +43,7 @@ def plan_panel():
     if P.PRINT_RIBS:
         # жертовні перемички: міст 159мм → 4 прольоти по ~40 (зрізати
         # кусачками після друку; кромки зачистити перед щитком I/O)
-        for k in (0.25, 0.5, 0.75):
+        for k in (0.2, 0.4, 0.6, 0.8):
             xc = P.IO_X[0] + k * (P.IO_X[1] - P.IO_X[0])
             ap = ap.difference(sg.box(xc - P.PRINT_RIB_W / 2, P.IO_Z[0] - 1,
                                       xc + P.PRINT_RIB_W / 2, P.IO_Z[1] + 1))
