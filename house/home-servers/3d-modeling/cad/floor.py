@@ -112,15 +112,14 @@ def plan_geometry():
                     continue                    # фрагмент біля постаменту → суцільний
                 holes.append(g)
 
-    # суцільні смуги під рейками SSD (соти їх обходять; під тілами дисків
-    # соти лишаються — обдув знизу)
-    rail_strips = []
+    # SSD-зона: соти ВСЮДИ (і під рейками, і під дисками — обдув знизу),
+    # лише обідок 2мм по периметру зони, як у RAM-вікон
+    # (суцільні смуги під рейками — «жахливі площини», фідбек 04.07)
     (a0, a1), (b0, b1) = P.SSD_SLOT_X
     y0s, y1s = P.SSD_Y[0] - 2, P.SSD_Y[1] + 2
-    for rx0, rx1 in ((a1, a1 + 2.6), (b1, a0), (b0 - 2.6, b0)):
-        rail_strips.append(sg.box(rx0, y0s, rx1, y1s))
-    railsU = unary_union(rail_strips)
-    holes = [h.difference(railsU) for h in holes]
+    zone = sg.box(b0 - 2.6, y0s, a1 + 2.6, y1s)
+    rim = zone.difference(zone.buffer(-2.0))
+    holes = [h.difference(rim) for h in holes]
     holes = [g for h in holes for g in _polys(h)
              if g.area > 10.0 and not g.buffer(-0.6).is_empty]
     voids = unary_union([unary_union(holes), windows])
@@ -145,12 +144,14 @@ def plan_geometry():
 
     # ── трикутні кишені (6 на комірку, R1), ребра TRI_RIB_W між ними ──
     inset = P.TRI_RIB_W / 2
-    # кишені не заходять на галтель постаменту (+0.5 запасу на з'єднання)
-    keep_r = P.STANDOFF_D / 2 + P.STANDOFF_FIL_R + 0.5
+    # 04.07: ізогрід НАСКРІЗНИЙ → суцільний комірець ⌀17 під колоною
+    # (виривання гвинта) + обідок 2мм по межі зони (крайові ребра 3мм
+    # заввишки не мають бути тонші 2)
+    keep_r = P.STANDOFF_COLLAR_D / 2
     base_keep = unary_union([
         sg.Point(x, y).buffer(keep_r, 48)
         for x, y in P.STANDOFF_XY.values()])
-    pocket_region = zone.buffer(-inset).difference(base_keep)
+    pocket_region = zone.buffer(-2.0).difference(base_keep)
     pockets = []
     for (hx, hy) in cells:
         cell_pts = [(hx + Rcell * math.cos(math.radians(a)),
@@ -172,7 +173,7 @@ def plan_geometry():
     crown_polys = [g for g in _polys(crown) if g.area > 3.0]
     holes = [g for h in holes for g in _polys(set_precision(h, 0.01))
              if g.area > 1.0]
-    return holes, crown_polys
+    return holes, crown_polys, pockets
 
 
 def standoff_part():
@@ -195,7 +196,7 @@ def standoff_part():
 
 
 def build():
-    holes, crown_polys = plan_geometry()
+    holes, crown_polys, tri_pockets = plan_geometry()
     standoff = standoff_part()                   # еталон — поза BuildPart
 
     with BuildPart() as tray:
@@ -250,6 +251,20 @@ def build():
                     make_face(mode=Mode.SUBTRACT)
         extrude(amount=P.TRI_RIB_H)
 
+        # ── ізогрід НАСКРІЗНИЙ (04.07): ті ж трикутні кишені прорізаються
+        # крізь 2мм заповнення → решітка 3мм на просвіт (жорсткість ×2.5
+        # у згині проти суцільної двійки, обдув; комірці ⌀17 суцільні) ──
+        with BuildSketch(Plane.XY.offset(-1)):
+            for pk in tri_pockets:
+                rp = pk.simplify(0.02).buffer(0)
+                if rp.geom_type != 'Polygon' or rp.area < 0.8:
+                    continue
+                with BuildLine():
+                    Polyline(*list(rp.exterior.coords)[:-1], close=True)
+                make_face()
+        extrude(amount=1 + P.INFILL_T + P.TRI_RIB_H + 0.5,
+                mode=Mode.SUBTRACT)
+
         # ── постаменти: 4 однакові колони ⌀9 з галтеллю R1 ──
         with Locations(*[(x, y, 0) for x, y in P.STANDOFF_XY.values()]):
             add(standoff)
@@ -267,21 +282,29 @@ def build():
         # диски ПРИПІДНЯТІ на шпалах — під ними канал для повітря ──
         (a0, a1), (b0, b1) = P.SSD_SLOT_X
         y0s, y1s = P.SSD_Y
-        for rx0, rx1 in ((a1, a1 + 2.4), (b1, a0), (b0 - 2.4, b0)):
+        # зовнішня рейка (при стінці) — ПОСТАМИ (повітря → ромбілі стінки),
+        # середня і внутрішня — суцільні
+        rails = ((a1, a1 + 2.4, P.SSD_POST_Y),
+                 (b1, a0, ((y0s - 2, y1s + 2),)),
+                 (b0 - 2.4, b0, ((y0s - 2, y1s + 2),)))
+        for rx0, rx1, runs in rails:
             cx = (rx0 + rx1) / 2
             w = rx1 - rx0
             hg, ht = P.SSD_RAIL_GRIP, P.SSD_RAIL_H
             t2 = P.SSD_RAIL_TOP / 2
-            # x_dir=(-1,0,0): щоб локальний +y був ГЛОБАЛЬНИМ +Z
-            # (з (1,0,0) профіль ріс ВНИЗ — дно сягало Z-14)
-            with BuildSketch(Plane((cx, y0s - 2, P.INFILL_T),
-                                   x_dir=(-1, 0, 0), z_dir=(0, 1, 0))) as tz:
-                with BuildLine():
-                    # прямі грані до GRIP (хват диска), вище — скіс-лійка
-                    Polyline((-w / 2, 0), (w / 2, 0), (w / 2, hg),
-                             (t2, ht), (-t2, ht), (-w / 2, hg), (-w / 2, 0))
-                make_face()
-            extrude(tz.sketch, amount=(y1s - y0s) + 4)
+            for ry0, ry1 in runs:
+                # x_dir=(-1,0,0): щоб локальний +y був ГЛОБАЛЬНИМ +Z
+                # (з (1,0,0) профіль ріс ВНИЗ — дно сягало Z-14)
+                with BuildSketch(Plane((cx, ry0, P.INFILL_T),
+                                       x_dir=(-1, 0, 0),
+                                       z_dir=(0, 1, 0))) as tz:
+                    with BuildLine():
+                        # прямі грані до GRIP (хват), вище — скіс-лійка
+                        Polyline((-w / 2, 0), (w / 2, 0), (w / 2, hg),
+                                 (t2, ht), (-t2, ht), (-w / 2, hg),
+                                 (-w / 2, 0))
+                    make_face()
+                extrude(tz.sketch, amount=ry1 - ry0)
         # передній упор-МІСТОК на рівні диска (Z10-18): знизу відкрито —
         # фронтальний вентилятор продуває канал під дисками наскрізь
         # (суцільна стінка блокувала повітря — фідбек 2026-07-03);

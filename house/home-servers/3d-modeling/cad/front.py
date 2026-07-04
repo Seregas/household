@@ -121,10 +121,13 @@ def plan_panel():
                 rb = sg.Polygon([(hx, hz), V[k], V[k + 1], V[(k + 2) % 6]])
                 if not (rb.intersects(field) or rb.intersects(blades)):
                     continue
-                if rb.intersects(screw_pads) or rb.intersects(btn_pad):
-                    continue            # пади/кнопка у суцільних ромбах
+                if rb.intersects(btn_pad):
+                    continue            # кнопка у суцільних ромбах
+                # пади гвинтів НЕ вбивають ромб цілком (лишались залиті
+                # плями ~10мм навколо кожного — фідбек 04.07): кишеня
+                # ріжеться, пад вирізається з неї (межа пада проступає)
                 pk = rb.buffer(-ero).buffer(P.RHOMB_R, quad_segs=8) \
-                       .intersection(field)
+                       .intersection(field).difference(screw_pads)
                 for g in _polys(pk):
                     # ріжемо й часткові шматки по краях (границя області має
                     # проглядатись); фільтр лише проти пилу: <1.5мм², вужчі ~0.7
@@ -138,7 +141,7 @@ def plan_panel():
                     # і воно хлипке для друку (урок: діра із зірочками)
                     pk2 = rb.buffer(-(0.45 + P.RHOMB_R)) \
                             .buffer(P.RHOMB_R, quad_segs=8) \
-                            .intersection(blades)
+                            .intersection(blades).difference(screw_pads)
                     for g in _polys(pk2):
                         if g.area >= 1.5 and not g.buffer(-0.3).is_empty:
                             rhomb.append(g)

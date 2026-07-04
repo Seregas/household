@@ -183,88 +183,6 @@ def _bead_band(x_outer, thickness_dir, prof):
 
 
 
-def _cove_prism(origin, line_dir, nA, nB, length, R, e=0.3):
-    """Стрічка-ков: чверть-заповнення внутрішнього кута вздовж прямої.
-    origin — точка на лінії стику; nA/nB — одиничні напрямки ВЗДОВЖ граней
-    від кута; line_dir — напрямок лінії; length — довжина."""
-    import numpy as np
-    nA = np.array(nA, float); nB = np.array(nB, float)
-    d = np.array(line_dir, float); d /= np.linalg.norm(d)
-    # вісь y скетча МУСИТЬ бути nB: Plane(x_dir, z_dir) сам виводить
-    # y = z×x і на правій стінці (nB = -X) профіль ДЗЕРКАЛИВСЯ в матеріал
-    # (кови ховались усередину, назовні стирчала втоплена кромка-«лезо» —
-    # фідбек 2026-07-03: 132.45/-89.29/4.55). Тому z беремо nA×nB (=±d),
-    # а знак довжини екструзії підганяємо під напрямок лінії.
-    w = np.cross(nA, nB)
-    pl = Plane(origin=tuple(origin), x_dir=tuple(nA), z_dir=tuple(w))
-    sgn = 1.0 if float(np.dot(w, d)) > 0 else -1.0
-    target = R * R * (1 - math.pi / 4)
-    # весь профіль втоплено на e у кут: кінці дуги (дотичні до граней!)
-    # ховаються всередину матеріалу, поверхня виходить трансверсально —
-    # інакше дотична лінія (напр. Z7 на стінці) дає нон-маніфолдний STL.
-    # e — глибина втоплення; сусіднім стрічкам давати РІЗНЕ e, інакше їхні
-    # поховані кромки знову збігаються лінія-в-лінію (нон-маніфолд).
-    for s in (R, -R):
-        try:
-            with BuildSketch(pl) as sk:
-                with BuildLine():
-                    Polyline((-e, -e), (R - e, -e))
-                    RadiusArc((R - e, -e), (-e, R - e), s)
-                    Line((-e, R - e), (-e, -e))
-                make_face()
-            if abs(sk.sketch.area - target) < 0.05:
-                break
-        except Exception:
-            continue
-    with BuildPart() as cp:
-        extrude(sk.sketch, amount=sgn * length)
-    return cp.part
-
-
-def wall_coves(x_outer, tdir, front_ribs=True):
-    """Кови R2 прямих примикань бортика (перша черга): плінтус (стінка↔верх,
-    бік↔рама), рубчик (панель↔бік, стінка↔внутр. грань), рейл (стінка↔внутр.).
-    Мітри в кутах — перетином сусідніх стрічок (union)."""
-    R = P.COVE_R
-    xin = x_outer + tdir * P.WALL_T          # внутрішня грань стінки
-    xb = x_outer + tdir * P.BEAD_W           # внутрішня межа бортика
-    zt_pl = P.BEAD_W                         # верх плінтуса (Z5)
-    zfr = P.FRAME_T                          # верх рами (Z3)
-    y_rib = P.BODY_FRONT_Y + P.BEAD_W        # внутр. грань рубчика (-91.4)
-    y_rail = P.WALL_REAR_Y - P.BEAD_W        # внутр. межа рейла (79.5)
-    parts = []
-    # 1) плінтус-верх ↔ стінка (лінія вздовж Y на (xin, zt_pl))
-    parts.append(_cove_prism((xin, y_rib - R, zt_pl), (0, 1, 0),
-                             (tdir, 0, 0) and (0, 0, 1) or None, None, 0, R)
-                 if False else
-                 _cove_prism((xin, y_rib - R, zt_pl), (0, 1, 0),
-                             (0, 0, 1), (tdir, 0, 0),
-                             (y_rail + R) - (y_rib - R), R))
-    # 2) плінтус-бік ↔ рама (лінія вздовж Y на (xb, zfr));
-    # e=0.45 ≠ 0.3 — кромка стрічки 1 сідала точно на кромку 2 (BEAD_W-WALL_T=R)
-    parts.append(_cove_prism((xb, y_rib - R, zfr), (0, 1, 0),
-                             (0, 0, 1), (tdir, 0, 0),
-                             (y_rail + R) - (y_rib - R), R, e=0.45))
-    # 3/4) вертикальні стрічки рубчика — ЛИШЕ де нема ніші вентилятора:
-    # на правій стінці вони перетинали проріз і висіли в повітрі —
-    # прибрані зовсім (фідбек 2026-07-03: «і без них нормально»)
-    if front_ribs:
-        # 3) рубчик: бічна грань (xb) ↔ панель (лінія вздовж Z)
-        parts.append(_cove_prism((xb, P.BODY_FRONT_Y, zfr), (0, 0, 1),
-                                 (0, 1, 0), (tdir, 0, 0), 60.0, R))
-        # 4) рубчик: внутрішня грань (y_rib) ↔ стінка (вздовж Z)
-        parts.append(_cove_prism((xin, y_rib, zt_pl - R), (0, 0, 1),
-                                 (0, 1, 0), (tdir, 0, 0), 58.0, R))
-    # 5) рейл: внутрішня межа (y_rail) ↔ стінка (вздовж Z, до кромки);
-    # старт утоплений на 0.6 у плінтус — дотична мітра давала діри STL
-    parts.append(_cove_prism((xin, y_rail, zt_pl - R - 0.6), (0, 0, 1),
-                             (0, -1, 0), (tdir, 0, 0), 16.6, R))
-    out = parts[0]
-    for q in parts[1:]:
-        out = out + q
-    return out
-
-
 def rear_ridge():
     """Задній бортик 5×5 (Z3..8): пряма ділянка = екструзія профілю з R2
     на зовнішньо-верхній вершині (2D!), кути = чверть-РЕВОЛЬВИ того ж
@@ -367,7 +285,6 @@ def build():
         extrude(amount=P.WALL_T + P.BEAD_W + 2)
     left = (left - cut.part).fix()   # .fix() після вирізу: інакше fuse
                                      # мовчки викидає «крихкий» солід
-    left = left + wall_coves(P.WALL_L_X, +1)
 
     # проріз під тіло 40-мм вентилятора у ПРАВІЙ стінці: рамка проходить
     # крізь плиту (права грань вентилятора врівень із зовнішньою площиною);
@@ -380,9 +297,6 @@ def build():
                 # гострокутний — R2 у ніші не давав рамці сісти (фідбек)
                 Rectangle(P.FAN_D + 2 * clr, P.FAN_W + 2 * clr)
         extrude(amount=P.WALL_T + P.BEAD_W + 3)
-    # кови ДО прорізу: інакше вертикальні стрічки рубчика (3/4) повисають
-    # у повітрі поперек ніші (фідбек 2026-07-03, зелені смуги на скрінах)
-    right = right + wall_coves(P.WALL_R_X, -1, front_ribs=False)
     right = (right - fcut.part).fix()
 
     # МІСТОК за вентилятором (2026-07-03): відновлює неперервність стінки
