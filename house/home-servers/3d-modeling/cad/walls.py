@@ -217,6 +217,58 @@ def _bead_band(x_outer, thickness_dir, prof):
                 if r == rad * 0.35:
                     print(f"  (!) fillet «{name}» не вдався навіть R{r:.2f}:", ex)
 
+    # ── ріг-галтель «в унісон» (04.07, ідея користувача): задній бортик
+    # отримує СВІЙ ков R4 уздовж стику з внутрішньою гранню стінки;
+    # спереду видирається по кову рейла і зливається з ним, ззаду
+    # згасає перед кутовим револьвом. Профілі втоплені на 0.3 в обидві
+    # грані. Секції будуються ПОЗА BuildPart (урок: вкладений BuildSketch
+    # витікає pending-гранню і розносить лофт на уламки), бік дуги —
+    # перевіркою площі.
+    rc = P.REAR_COVE_R
+    cyc = P.WALL_REAR_Y + rc                      # центр кова рейла (86.5)
+
+    def _horn_sec(xw, d, y, r):
+        if y <= cyc:
+            zb = (P.RIDGE_TOP_Z + rc) - math.sqrt(
+                max(rc * rc - (y - cyc) ** 2, 0.0))
+        else:
+            zb = P.RIDGE_TOP_Z
+        if r is None:
+            # зона підйому: верх рога рівний, але на 0.5 НИЖЧЕ верху кова
+            # (Z11.5): на Z12 верхівка ДОТИКАЛАСЬ кромки кова біля рейла —
+            # fuse розносив модель (04.07)
+            r = (P.RIDGE_TOP_Z + rc - 0.5) - zb
+        best = None
+        for s in (r, -r):
+            try:
+                with BuildSketch(Plane.XZ.offset(-y)) as cand:
+                    with BuildLine():
+                        # низ утоплено на 1.3: чейн-філет кромки кова
+                        # просідає ~1 — з 0.3 ріг висів у повітрі (fuse
+                        # розносив модель на десятки тіл)
+                        Polyline((xw - d * 0.3, zb - 1.3),
+                                 (xw - d * 0.3, zb + r),
+                                 (xw, zb + r))
+                        RadiusArc((xw, zb + r), (xw + d * r, zb), s)
+                        Polyline((xw + d * r, zb),
+                                 (xw + d * r, zb - 1.3),
+                                 (xw - d * 0.3, zb - 1.3))
+                    make_face()
+                if best is None or cand.sketch.area < best.area:
+                    best = cand.sketch
+            except Exception:
+                continue
+        return best
+
+    if True:
+        xw = x_outer + thickness_dir * P.BEAD_W
+        d = thickness_dir
+        secs = [_horn_sec(xw, d, y, r) for y, r in
+                ((83.1, None), (83.7, None), (84.5, None), (85.5, None),
+                 (86.5, rc - 0.5), (87.5, rc - 0.5), (88.5, rc - 0.5),
+                 (89.8, 2.0), (91.0, 0.4))]
+        horn = loft(sections=secs, ruled=True)
+        solid = (solid + horn).fix()
     return solid
 
 
@@ -376,7 +428,9 @@ def build():
     # ⚠️ впадину у стику рейл↔бортик НЕ робити post-fuse філетом —
     # SEGFAULT (клапоть копланарний бортику, патерн «брови»). TODO:
     # окреме бленд-тіло (свіп-ков уздовж стику) наступною ітерацією.
-    return left + right + rear_ridge()
+    total = left + right
+
+    return total + rear_ridge()
 
 
 if __name__ == "__main__":
