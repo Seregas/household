@@ -83,9 +83,11 @@ def _silhouette_shapely():
     pts.append(ts2)
     pts += _arc_pts(cc2, P.WALL_EDGE_CORNER_R, ts2, tv2)
     pts.append((P.WALL_REAR_Y, zt + rc))
-    # увігнута галтель R2 → дотично на верх бортика
-    pts += _arc_pts((P.WALL_REAR_Y + rc, zt + rc), rc,
-                    (P.WALL_REAR_Y, zt + rc), (P.WALL_REAR_Y + rc, zt))
+    # 04.07 v3: замість дотичного R2-кова — прямий 45°-скіс на бортик.
+    # Дотичний ков математично вбивав філети (R2-кулька в R2-жолобі =
+    # no-op) і породив лавину милиць (лофт/карв/план-циліндри). Скіс
+    # філетиться ланцюгом З КУЛЬКАМИ на кутах — вузол = одна операція.
+    pts.append((P.WALL_REAR_Y + rc, zt))
     # 04.07: БЕЗ клаптя — тор кутового револьва бортика в дотичній
     # площині Y86.5 збігається з прямим філетом смуги ТОЧНО, а клапоть
     # 0.5 за дотичною давав клин-обрив (137.7/87/7.8). T-стик дотичної
@@ -117,8 +119,8 @@ def _profile_sketch():
                             Line(ts, ts2)
                             RadiusArc(ts2, tv2, s2 * P.WALL_EDGE_CORNER_R)
                             Line(tv2, (P.WALL_REAR_Y, zt + rc))
-                            RadiusArc((P.WALL_REAR_Y, zt + rc),
-                                      (P.WALL_REAR_Y + rc, zt), s3 * rc)
+                            Line((P.WALL_REAR_Y, zt + rc),
+                                 (P.WALL_REAR_Y + rc, zt))
                             Polyline((P.WALL_REAR_Y + rc, zt),
                                      (P.WALL_REAR_Y + rc, 0), (yf, 0))
                         make_face()
@@ -171,7 +173,11 @@ def _bead_band(x_outer, thickness_dir, prof):
         # (біжать у YZ, size.X≈0) — вертикальні торцеві та поперечні
         # (вздовж X: кут Y87/Z8, дотичне біля yf) валять філет цілком
         at_end = c.Y > y_hi - 0.7 or c.Y < yf_lo + 0.7
-        return not (at_end and (bb.size.Z > 6.0 or bb.size.X > 1.0))
+        if bb.size.Z > 6.0 and at_end:
+            return False                     # торцеві вертикалі
+        if bb.size.X > 1.0 and (c.Y > 86.3 or c.Y < yf_lo + 0.7):
+            return False                     # поперечка лише на торці зла
+        return True
 
     stages = [
         # єдиний ланцюг: кромка+рейл (+ков, де R2 на R2-кові — no-op:
@@ -183,8 +189,7 @@ def _bead_band(x_outer, thickness_dir, prof):
         # піти далі»); кути засипки діри на Y78 — виключені (валять ланцюг)
         ("внутрішній контур", P.CREST_R,
          lambda e: in_chain(e, -1.0)
-         and not (77.4 < e.center().Y < 78.6)
-         and e.center().Y < 82.0, True),
+         and not (77.4 < e.center().Y < 78.6), True),
     ]
     Sin = S.buffer(-P.BEAD_W)
     bnd_in = Sin.exterior if Sin.geom_type == 'Polygon' else None
@@ -213,69 +218,7 @@ def _bead_band(x_outer, thickness_dir, prof):
                 if r == rad * 0.35:
                     print(f"  (!) fillet «{name}» не вдався навіть R{r:.2f}:", ex)
 
-    # ── «ЗАКІНЧЕННЯ» (04.07): сегмент Y[рейл..дотична] вирізаємо і
-    # заміняємо ЛОФТОМ з R2-гребенем у КОЖНОМУ 2D-профілі: філет тут
-    # неможливий (R2-кулька по R2-кову = no-op), гострий кут давав
-    # сходинку проти кутового револьва бортика (фідбек: «муляє»).
-    # На Y86.5 профіль лофта = профіль револьва → стик точний.
-    y0h, y1h = P.WALL_REAR_Y, P.WALL_REAR_Y + P.REAR_COVE_R
-    x_in = x_outer + thickness_dir * P.BEAD_W
-    cx = (x_outer + x_in) / 2
-    with BuildPart() as cv:
-        # карв ЗА торець (+1): різ по копланарній із торцем грані Y86.5
-        # робив шелл невалідним (04.07)
-        with Locations((cx, (y0h + y1h + 1.0) / 2, 5.5)):
-            Box(P.BEAD_W + 0.4, y1h - y0h + 1.0, 13.0)
-    solid = (solid - cv.part).fix()
-    cyc, czc = y1h, P.RIDGE_TOP_Z + P.REAR_COVE_R      # центр кова (86.5, 10)
-    with BuildPart() as heel:
-        # старт на 1мм ПЕРЕД карвом: об'ємне перекриття з тілом смуги
-        # (бутт-стик OCC «склеює», наступні булеві розклеюють у 2 соліди);
-        # поховані секції ВТОПЛЕНІ на 0.4 — копланарні з гранями смуги
-        # бічні/нижня грані лофта робили fuse невалідним (04.07)
-        for y, ins in ((y0h - 1.0, 0.4), (y0h - 0.4, 0.4), (y0h, 0.0),
-                       (y0h + 0.4, 0.0), (y0h + 0.8, 0.0),
-                       (y0h + 1.2, 0.0), (y0h + 1.6, 0.0),
-                       (y0h + 1.85, 0.0), (y1h, 0.0)):
-            zt = czc - math.sqrt(max(P.REAR_COVE_R ** 2 - (y - cyc) ** 2,
-                                     0.0)) - ins
-            xo = x_outer + thickness_dir * ins
-            xi = x_in - thickness_dir * ins
-            with BuildSketch(Plane.XZ.offset(-y)) as sec:
-                with BuildLine():
-                    Polyline((xi, ins), (xo, ins), (xo, zt),
-                             (xi, zt), (xi, ins))
-                make_face()
-                vs = [v for v in sec.vertices()
-                      if abs(v.X - xo) < 0.01 and abs(v.Y - zt) < 0.01]
-                fillet(vs, radius=P.CREST_R)
-            # (профілі накопичуються як pending faces)
-        loft()
-    solid = (solid + heel.part).fix()
-    # план-циліндри R2 на обох задніх вертикальних ребрах (та сама вісь,
-    # що в чейн-філетів): зрізають кути наскрізь до зони лофта — вибіги
-    # філетів зливаються з кромкою лофта в цілісні циліндри (04.07,
-    # фіни-обрізки: 137.35/84.5/10, 133.05/84.36/9.74, 132.92/83.22/8.1).
-    # Y строго до карв-площини (84.55) — далі кромка лофта.
-    y0c = P.WALL_REAR_Y - P.CREST_R
-    with BuildPart() as pcut:
-        for ax_x, edge_x in (
-                (x_outer + thickness_dir * P.CREST_R,
-                 x_outer - thickness_dir * 0.2),
-                (x_in - thickness_dir * P.CREST_R,
-                 x_in + thickness_dir * 0.2)):
-            with BuildSketch(Plane.XY.offset(P.RIDGE_TOP_Z - 0.1)) as pc:
-                with Locations(((ax_x + edge_x) / 2,
-                                (y0c + P.WALL_REAR_Y + 0.05) / 2)):
-                    Rectangle(abs(edge_x - ax_x),
-                              P.WALL_REAR_Y + 0.05 - y0c)
-                with Locations((ax_x, y0c)):
-                    Circle(P.CREST_R, mode=Mode.SUBTRACT)
-            extrude(pc.sketch, amount=25.0)
-    solid = (solid - pcut.part).fix()
     return solid
-
-
 
 
 def rear_ridge():
@@ -364,17 +307,7 @@ def wall_part(x_outer, thickness_dir, keepouts=()):
                     make_face()
             extrude(hs.sketch, amount=thickness_dir * (P.WALL_T + 2),
                     mode=Mode.SUBTRACT)
-    # хвіст плити в зоні «закінчення» зрізаємо: нижня смуга плити (Z<10,
-    # трим-бокс навмисно її не чіпає) там повнопрофільна — її ков 8.27
-    # накривав гребінь лофта (04.07, четвертий винуватець сходинки)
-    x_in2 = x_outer + thickness_dir * P.BEAD_W
-    y0h = P.WALL_REAR_Y
-    with BuildPart() as pcv:
-        with Locations(((x_outer + x_in2) / 2,
-                        (2 * y0h + P.REAR_COVE_R + 1.0) / 2, 5.5)):
-            Box(P.BEAD_W + 0.4, P.REAR_COVE_R + 1.0, 13.0)
-    slab = (wp.part - pcv.part).fix()
-    return slab + _bead_band(x_outer, thickness_dir, prof)
+    return wp.part + _bead_band(x_outer, thickness_dir, prof)
 
 def build():
     # keepout-и решітки: виріз кулера (ліва), ніша вентилятора + місток (права)
@@ -433,19 +366,7 @@ def build():
     # ⚠️ впадину у стику рейл↔бортик НЕ робити post-fuse філетом —
     # SEGFAULT (клапоть копланарний бортику, патерн «брови»). TODO:
     # окреме бленд-тіло (свіп-ков уздовж стику) наступною ітерацією.
-    # з бортика зрізаємо зони «закінчення» (Y84.5..86.5 при стінках):
-    # його передня коробка (від Y83.5) з гострим верхом Z8 стирчала над
-    # гребенем лофта (04.07, п'ятий і останній винуватець сходинки);
-    # кутові револьви (Y>86.5) НЕ чіпаємо
-    ridge = rear_ridge()
-    with BuildPart() as rcv:
-        for xo, td in ((P.WALL_R_X, -1), (P.WALL_L_X, +1)):
-            xc = xo + td * P.BEAD_W / 2
-            with Locations((xc, (P.WALL_REAR_Y + P.WALL_REAR_Y
-                                 + P.REAR_COVE_R) / 2, 5.5)):
-                Box(P.BEAD_W + 0.4, P.REAR_COVE_R, 12.0)
-    ridge = (ridge - rcv.part).fix()
-    return left + right + ridge
+    return left + right + rear_ridge()
 
 
 if __name__ == "__main__":
