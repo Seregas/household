@@ -183,7 +183,8 @@ def _bead_band(x_outer, thickness_dir, prof):
         # піти далі»); кути засипки діри на Y78 — виключені (валять ланцюг)
         ("внутрішній контур", P.CREST_R,
          lambda e: in_chain(e, -1.0)
-         and not (77.4 < e.center().Y < 78.6), True),
+         and not (77.4 < e.center().Y < 78.6)
+         and e.center().Y < 82.0, True),
     ]
     Sin = S.buffer(-P.BEAD_W)
     bnd_in = Sin.exterior if Sin.geom_type == 'Polygon' else None
@@ -251,6 +252,27 @@ def _bead_band(x_outer, thickness_dir, prof):
             # (профілі накопичуються як pending faces)
         loft()
     solid = (solid + heel.part).fix()
+    # план-циліндри R2 на обох задніх вертикальних ребрах (та сама вісь,
+    # що в чейн-філетів): зрізають кути наскрізь до зони лофта — вибіги
+    # філетів зливаються з кромкою лофта в цілісні циліндри (04.07,
+    # фіни-обрізки: 137.35/84.5/10, 133.05/84.36/9.74, 132.92/83.22/8.1).
+    # Y строго до карв-площини (84.55) — далі кромка лофта.
+    y0c = P.WALL_REAR_Y - P.CREST_R
+    with BuildPart() as pcut:
+        for ax_x, edge_x in (
+                (x_outer + thickness_dir * P.CREST_R,
+                 x_outer - thickness_dir * 0.2),
+                (x_in - thickness_dir * P.CREST_R,
+                 x_in + thickness_dir * 0.2)):
+            with BuildSketch(Plane.XY.offset(P.RIDGE_TOP_Z - 0.1)) as pc:
+                with Locations(((ax_x + edge_x) / 2,
+                                (y0c + P.WALL_REAR_Y + 0.05) / 2)):
+                    Rectangle(abs(edge_x - ax_x),
+                              P.WALL_REAR_Y + 0.05 - y0c)
+                with Locations((ax_x, y0c)):
+                    Circle(P.CREST_R, mode=Mode.SUBTRACT)
+            extrude(pc.sketch, amount=25.0)
+    solid = (solid - pcut.part).fix()
     return solid
 
 

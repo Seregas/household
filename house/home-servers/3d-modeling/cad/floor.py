@@ -324,6 +324,22 @@ def build():
                                 P.INFILL_T + (P.SSD_LIFT - 2.0) / 2)):
                     Box(sx1 - sx0 - 3.2, P.SSD_SLEEPER_W + 2,
                         P.SSD_LIFT - 2.0, mode=Mode.SUBTRACT)
+        # соти в бічних поверхнях суцільних рейок (фідбек 04.07: глухі
+        # стіни 26×104 різали продув між слотами): 2 ряди AF7 наскрізь,
+        # суцільні пади ±5.5 навколо crush-ребер, обідки по краях
+        hex_r = 7.0 / math.sqrt(3)
+        for rx0, rx1 in ((b1, a0), (b0 - 2.4, b0)):
+            with BuildSketch(Plane.YZ.offset(rx0 - 1)) as hxs:
+                for zr, y_start in ((8.5, -17.0), (18.5, -12.5)):
+                    hy = y_start
+                    while hy <= 77.5:
+                        if all(abs(hy - ys) >= 5.5 for ys in P.SSD_SLEEPER_Y):
+                            with Locations((hy, zr)):
+                                RegularPolygon(hex_r, 6, major_radius=True,
+                                               rotation=90)
+                        hy += 9.0
+            extrude(hxs.sketch, amount=(rx1 - rx0) + 2,
+                    mode=Mode.SUBTRACT)
         # crush-ребра: півкруглі вертикальні стовпчики на гранях рейок
         # (диск ковзає по Y — округлість = самозавід), Z10..GRIP
         rib_h = P.SSD_RAIL_GRIP - P.SSD_LIFT
