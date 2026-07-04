@@ -327,6 +327,17 @@ def build():
                 RectangleRounded(cy1 - cy0, cz1 - cz0, radius=P.COOLER_CUT_R)
         extrude(amount=P.WALL_T + P.BEAD_W + 2)
     left = (left - cut.part).fix()   # .fix() після вирізу: інакше fuse
+    if P.PRINT_RIBS:
+        # жертовні перемички вирізу кулера: міст 85мм → 3 прольоти по ~28
+        with BuildPart() as ribs:
+            y0k, y1k = P.COOLER_CUT_Y
+            for k in (1 / 3, 2 / 3):
+                with Locations((P.WALL_L_X + P.WALL_T / 2,
+                                y0k + k * (y1k - y0k),
+                                (P.COOLER_CUT_Z[0] + P.COOLER_CUT_Z[1]) / 2)):
+                    Box(P.WALL_T, P.PRINT_RIB_W,
+                        P.COOLER_CUT_Z[1] - P.COOLER_CUT_Z[0] + 1)
+        left = left + ribs.part
                                      # мовчки викидає «крихкий» солід
 
     # проріз під тіло 40-мм вентилятора у ПРАВІЙ стінці: рамка проходить

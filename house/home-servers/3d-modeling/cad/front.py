@@ -39,8 +39,15 @@ def plan_panel():
 
     holes = []
     # ── I/O-апертура ──
-    holes.append(_rounded(sg.box(P.IO_X[0], P.IO_Z[0], P.IO_X[1], P.IO_Z[1]),
-                          P.IO_R))
+    ap = _rounded(sg.box(P.IO_X[0], P.IO_Z[0], P.IO_X[1], P.IO_Z[1]), P.IO_R)
+    if P.PRINT_RIBS:
+        # жертовні перемички: міст 159мм → 4 прольоти по ~40 (зрізати
+        # кусачками після друку; кромки зачистити перед щитком I/O)
+        for k in (0.25, 0.5, 0.75):
+            xc = P.IO_X[0] + k * (P.IO_X[1] - P.IO_X[0])
+            ap = ap.difference(sg.box(xc - P.PRINT_RIB_W / 2, P.IO_Z[0] - 1,
+                                      xc + P.PRINT_RIB_W / 2, P.IO_Z[1] + 1))
+    holes.append(ap)
     # ── слоти вушок (вертикальні стадіони) ──
     for xc in P.EAR_SLOT_XC:
         for z0, z1 in P.EAR_SLOT_Z:
