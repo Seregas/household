@@ -136,6 +136,12 @@ def _bead_band(x_outer, thickness_dir, prof):
     with BuildSketch() as ring:
         add(prof)
         offset(amount=-P.BEAD_W, mode=Mode.SUBTRACT)
+        # 04.07: діру кільця ззаду ЗАСИПАЄМО від Y78 — внутрішній кут
+        # офсету біля закінчення був клубком дуг (шпильки/провали на
+        # внутрішній грані, фідбек: 132.92/83.39/7.8)
+        with Locations((82.5, 15)):
+            Rectangle(9.0, 30.0)
+        add(prof, mode=Mode.INTERSECT)
     with BuildPart() as bp:
         extrude(Plane.YZ.offset(x_outer) * ring.sketch,
                 amount=thickness_dir * P.BEAD_W)
@@ -174,12 +180,10 @@ def _bead_band(x_outer, thickness_dir, prof):
         ("кромка+рейл+ков", P.CREST_R, lambda e: in_chain(e, 8.1)),
         ("кромка+рейл (fallback)", P.CREST_R, lambda e: in_chain(e, 9.9)),
         # внутрішній контур кільця (п.1 фідбеку 2026-07-03: «скруглення мало
-        # піти далі») — ребра вздовж внутрішньої межі бортика.
-        # Задньо-нижній внутрішній кут (Y>80.5, Z<6.5) виключено: після
-        # зняття клаптя ребро там вироджене — валило ВЕСЬ ланцюг (04.07)
+        # піти далі»); кути засипки діри на Y78 — виключені (валять ланцюг)
         ("внутрішній контур", P.CREST_R,
          lambda e: in_chain(e, -1.0)
-         and not (e.center().Y > 80.5 and e.center().Z < 6.5), True),
+         and not (77.4 < e.center().Y < 78.6), True),
     ]
     Sin = S.buffer(-P.BEAD_W)
     bnd_in = Sin.exterior if Sin.geom_type == 'Polygon' else None
@@ -207,6 +211,46 @@ def _bead_band(x_outer, thickness_dir, prof):
             except Exception as ex:
                 if r == rad * 0.35:
                     print(f"  (!) fillet «{name}» не вдався навіть R{r:.2f}:", ex)
+
+    # ── «ЗАКІНЧЕННЯ» (04.07): сегмент Y[рейл..дотична] вирізаємо і
+    # заміняємо ЛОФТОМ з R2-гребенем у КОЖНОМУ 2D-профілі: філет тут
+    # неможливий (R2-кулька по R2-кову = no-op), гострий кут давав
+    # сходинку проти кутового револьва бортика (фідбек: «муляє»).
+    # На Y86.5 профіль лофта = профіль револьва → стик точний.
+    y0h, y1h = P.WALL_REAR_Y, P.WALL_REAR_Y + P.REAR_COVE_R
+    x_in = x_outer + thickness_dir * P.BEAD_W
+    cx = (x_outer + x_in) / 2
+    with BuildPart() as cv:
+        # карв ЗА торець (+1): різ по копланарній із торцем грані Y86.5
+        # робив шелл невалідним (04.07)
+        with Locations((cx, (y0h + y1h + 1.0) / 2, 5.5)):
+            Box(P.BEAD_W + 0.4, y1h - y0h + 1.0, 13.0)
+    solid = (solid - cv.part).fix()
+    cyc, czc = y1h, P.RIDGE_TOP_Z + P.REAR_COVE_R      # центр кова (86.5, 10)
+    with BuildPart() as heel:
+        # старт на 1мм ПЕРЕД карвом: об'ємне перекриття з тілом смуги
+        # (бутт-стик OCC «склеює», наступні булеві розклеюють у 2 соліди);
+        # поховані секції ВТОПЛЕНІ на 0.4 — копланарні з гранями смуги
+        # бічні/нижня грані лофта робили fuse невалідним (04.07)
+        for y, ins in ((y0h - 1.0, 0.4), (y0h - 0.4, 0.4), (y0h, 0.0),
+                       (y0h + 0.4, 0.0), (y0h + 0.8, 0.0),
+                       (y0h + 1.2, 0.0), (y0h + 1.6, 0.0),
+                       (y0h + 1.85, 0.0), (y1h, 0.0)):
+            zt = czc - math.sqrt(max(P.REAR_COVE_R ** 2 - (y - cyc) ** 2,
+                                     0.0)) - ins
+            xo = x_outer + thickness_dir * ins
+            xi = x_in - thickness_dir * ins
+            with BuildSketch(Plane.XZ.offset(-y)) as sec:
+                with BuildLine():
+                    Polyline((xi, ins), (xo, ins), (xo, zt),
+                             (xi, zt), (xi, ins))
+                make_face()
+                vs = [v for v in sec.vertices()
+                      if abs(v.X - xo) < 0.01 and abs(v.Y - zt) < 0.01]
+                fillet(vs, radius=P.CREST_R)
+            # (профілі накопичуються як pending faces)
+        loft()
+    solid = (solid + heel.part).fix()
     return solid
 
 
@@ -269,8 +313,10 @@ def wall_part(x_outer, thickness_dir, keepouts=()):
         # 04.07: трим ДО фронту (-97.5, за поховану грань) — передня
         # смужка плити 0.7 на повну висоту стирчала крізь філет бортика
         # («полиця» Y-96.2, фідбек: 137.49/-96.2/74.74 і дзеркально)
-        with Locations(((-97.5 + P.WALL_REAR_Y + 0.5) / 2, 45)):
-            Rectangle(P.WALL_REAR_Y + 0.5 + 97.5, 70,
+        # ...і ДО ЗА задній кінець силуету (88): хвіст плити Y85..86.5
+        # на повну висоту накривав гребінь лофта-«закінчення» (04.07)
+        with Locations(((-97.5 + 88.0) / 2, 45)):
+            Rectangle(88.0 + 97.5, 70,
                       mode=Mode.INTERSECT)
     with BuildSketch() as slab_sk:
         add(prof)
@@ -296,7 +342,17 @@ def wall_part(x_outer, thickness_dir, keepouts=()):
                     make_face()
             extrude(hs.sketch, amount=thickness_dir * (P.WALL_T + 2),
                     mode=Mode.SUBTRACT)
-    return wp.part + _bead_band(x_outer, thickness_dir, prof)
+    # хвіст плити в зоні «закінчення» зрізаємо: нижня смуга плити (Z<10,
+    # трим-бокс навмисно її не чіпає) там повнопрофільна — її ков 8.27
+    # накривав гребінь лофта (04.07, четвертий винуватець сходинки)
+    x_in2 = x_outer + thickness_dir * P.BEAD_W
+    y0h = P.WALL_REAR_Y
+    with BuildPart() as pcv:
+        with Locations(((x_outer + x_in2) / 2,
+                        (2 * y0h + P.REAR_COVE_R + 1.0) / 2, 5.5)):
+            Box(P.BEAD_W + 0.4, P.REAR_COVE_R + 1.0, 13.0)
+    slab = (wp.part - pcv.part).fix()
+    return slab + _bead_band(x_outer, thickness_dir, prof)
 
 def build():
     # keepout-и решітки: виріз кулера (ліва), ніша вентилятора + місток (права)
@@ -355,7 +411,19 @@ def build():
     # ⚠️ впадину у стику рейл↔бортик НЕ робити post-fuse філетом —
     # SEGFAULT (клапоть копланарний бортику, патерн «брови»). TODO:
     # окреме бленд-тіло (свіп-ков уздовж стику) наступною ітерацією.
-    return left + right + rear_ridge()
+    # з бортика зрізаємо зони «закінчення» (Y84.5..86.5 при стінках):
+    # його передня коробка (від Y83.5) з гострим верхом Z8 стирчала над
+    # гребенем лофта (04.07, п'ятий і останній винуватець сходинки);
+    # кутові револьви (Y>86.5) НЕ чіпаємо
+    ridge = rear_ridge()
+    with BuildPart() as rcv:
+        for xo, td in ((P.WALL_R_X, -1), (P.WALL_L_X, +1)):
+            xc = xo + td * P.BEAD_W / 2
+            with Locations((xc, (P.WALL_REAR_Y + P.WALL_REAR_Y
+                                 + P.REAR_COVE_R) / 2, 5.5)):
+                Box(P.BEAD_W + 0.4, P.REAR_COVE_R, 12.0)
+    ridge = (ridge - rcv.part).fix()
+    return left + right + ridge
 
 
 if __name__ == "__main__":
