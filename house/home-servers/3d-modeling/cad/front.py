@@ -294,6 +294,11 @@ def build():
             with Locations((P.LSI_X, (fz0 + fz1) / 2)):
                 Rectangle(2 * (hw + bw), fz1 - fz0)
         extrude(fork.sketch, amount=-P.LSI_FORK_D)
+        # правий зуб (+X) — глибший: довша напрямна з боку заведення
+        with BuildSketch(Plane.XZ.offset(96.4)) as rext:
+            with Locations((P.LSI_X + hw + bw / 2, (fz0 + fz1) / 2)):
+                Rectangle(bw, fz1 - fz0)
+        extrude(rext.sketch, amount=-P.LSI_FORK_D_R)
         # паз: від перемички назад КРІЗЬ брову (задня грань брови -91.4);
         # стеля вирізу = fz1 (вище лишаються 3мм цілої брови/панелі)
         y_web = -96.4 + P.LSI_WEB_T
@@ -301,17 +306,20 @@ def build():
                         (fz0 - 0.5 + fz1) / 2)):
             Box(2 * hw, -91.3 - y_web, fz1 - fz0 + 0.5,
                 mode=Mode.SUBTRACT)
-        # лійка З ТИЛУ (карта заходить ззаду в піднятому положенні):
-        # задні торці щік скошені в плані, паз 1.7 → ~4.5; по Z рівно
-        # до стелі вирізу (вище — цілий матеріал брови, не чіпати)
+        # лійки З ТИЛУ (карта заходить ззаду в піднятому положенні),
+        # паз 1.7 → ~4.5; по Z рівно до стелі вирізу. Несиметричні:
+        # правий зуб глибший (лійка в кінці 8мм), лівий — лійка на 1мм
+        # далі від тилу, щоб лишався ≥1мм ПОВНОГО хвату плати
         with BuildSketch(Plane.XY.offset(fz0 - 0.5)) as wedges:
-            for side in (-1, 1):
+            for side, rear, leg in (
+                    (-1, -96.4 + P.LSI_FORK_D, 2.0 - P.LSI_GRIP_L),
+                    (+1, -96.4 + P.LSI_FORK_D_R, 2.0)):
                 xi = P.LSI_X + side * hw
                 with BuildLine():
-                    Polyline((xi, -96.4 + P.LSI_FORK_D + 0.1),
-                             (xi, -96.4 + P.LSI_FORK_D - 2.0),
-                             (xi + side * 1.4, -96.4 + P.LSI_FORK_D + 0.1),
-                             (xi, -96.4 + P.LSI_FORK_D + 0.1))
+                    Polyline((xi, rear + 0.1),
+                             (xi, rear - leg),
+                             (xi + side * 1.4, rear + 0.1),
+                             (xi, rear + 0.1))
                 make_face()
         extrude(wedges.sketch, amount=(fz1 - fz0) + 0.5, mode=Mode.SUBTRACT)
 

@@ -35,9 +35,14 @@ def shoulder_geometry():
     силуету, а від пофрагментного філета гребеня (шви) — вилікувано one-shot."""
     k, c0, n = _slope()
     R = P.WALL_SWOOP_R
-    cy = P.BODY_FRONT_Y + R
+    # дотик на ЗАГЛИБЛЕНІЙ грані (yf=-96.9, клапоть у панелі): раніше
+    # дотик на -96.4 давав сходинку 0.5 у силуеті — ланцюг філета гребеня
+    # обривався на ній, лишаючи клин недоведеного скруглення біля панелі
+    # (фідбек 2026-07-03: -82.01/-96.2/76.33 і симетрично)
+    yf = P.BODY_FRONT_Y - 0.5
+    cy = yf + R
     cz = k * cy + c0 + R * n             # центр ВИЩЕ прямої нахилу
-    t_vert = (P.BODY_FRONT_Y, cz)        # дотик на вертикалі (z_start)
+    t_vert = (yf, cz)                    # дотик на вертикалі (z_start)
     t_slope = (cy + R * k / n, cz - R / n)   # дотик на нахилі
     return t_vert, t_slope, (cy, cz)
 
@@ -73,7 +78,7 @@ def _silhouette_shapely():
     yf = P.BODY_FRONT_Y - 0.5
     zt = P.RIDGE_TOP_Z                    # 8.0
     rc = P.REAR_COVE_R                    # 2.0
-    pts = [(yf, 0), (yf, tv[1]), tv]
+    pts = [(yf, 0), tv]                   # дотик тепер на самій yf — без сходинки
     pts += _arc_pts(cc, P.WALL_SWOOP_R, tv, ts)
     pts.append(ts2)
     pts += _arc_pts(cc2, P.WALL_EDGE_CORNER_R, ts2, tv2)
@@ -105,7 +110,7 @@ def _profile_sketch():
                 try:
                     with BuildSketch() as sk:
                         with BuildLine():
-                            Polyline((yf, 0), (yf, tv[1]), tv)
+                            Polyline((yf, 0), tv)
                             RadiusArc(tv, ts, s1 * P.WALL_SWOOP_R)
                             Line(ts, ts2)
                             RadiusArc(ts2, tv2, s2 * P.WALL_EDGE_CORNER_R)
@@ -185,7 +190,14 @@ def _cove_prism(origin, line_dir, nA, nB, length, R, e=0.3):
     import numpy as np
     nA = np.array(nA, float); nB = np.array(nB, float)
     d = np.array(line_dir, float); d /= np.linalg.norm(d)
-    pl = Plane(origin=tuple(origin), x_dir=tuple(nA), z_dir=tuple(d))
+    # вісь y скетча МУСИТЬ бути nB: Plane(x_dir, z_dir) сам виводить
+    # y = z×x і на правій стінці (nB = -X) профіль ДЗЕРКАЛИВСЯ в матеріал
+    # (кови ховались усередину, назовні стирчала втоплена кромка-«лезо» —
+    # фідбек 2026-07-03: 132.45/-89.29/4.55). Тому z беремо nA×nB (=±d),
+    # а знак довжини екструзії підганяємо під напрямок лінії.
+    w = np.cross(nA, nB)
+    pl = Plane(origin=tuple(origin), x_dir=tuple(nA), z_dir=tuple(w))
+    sgn = 1.0 if float(np.dot(w, d)) > 0 else -1.0
     target = R * R * (1 - math.pi / 4)
     # весь профіль втоплено на e у кут: кінці дуги (дотичні до граней!)
     # ховаються всередину матеріалу, поверхня виходить трансверсально —
@@ -205,11 +217,11 @@ def _cove_prism(origin, line_dir, nA, nB, length, R, e=0.3):
         except Exception:
             continue
     with BuildPart() as cp:
-        extrude(sk.sketch, amount=length)
+        extrude(sk.sketch, amount=sgn * length)
     return cp.part
 
 
-def wall_coves(x_outer, tdir):
+def wall_coves(x_outer, tdir, front_ribs=True):
     """Кови R2 прямих примикань бортика (перша черга): плінтус (стінка↔верх,
     бік↔рама), рубчик (панель↔бік, стінка↔внутр. грань), рейл (стінка↔внутр.).
     Мітри в кутах — перетином сусідніх стрічок (union)."""
@@ -233,12 +245,16 @@ def wall_coves(x_outer, tdir):
     parts.append(_cove_prism((xb, y_rib - R, zfr), (0, 1, 0),
                              (0, 0, 1), (tdir, 0, 0),
                              (y_rail + R) - (y_rib - R), R, e=0.45))
-    # 3) рубчик: бічна грань (xb) ↔ панель (лінія вздовж Z)
-    parts.append(_cove_prism((xb, P.BODY_FRONT_Y, zfr), (0, 0, 1),
-                             (0, 1, 0), (tdir, 0, 0), 60.0, R))
-    # 4) рубчик: внутрішня грань (y_rib) ↔ стінка (вздовж Z)
-    parts.append(_cove_prism((xin, y_rib, zt_pl - R), (0, 0, 1),
-                             (0, 1, 0), (tdir, 0, 0), 58.0, R))
+    # 3/4) вертикальні стрічки рубчика — ЛИШЕ де нема ніші вентилятора:
+    # на правій стінці вони перетинали проріз і висіли в повітрі —
+    # прибрані зовсім (фідбек 2026-07-03: «і без них нормально»)
+    if front_ribs:
+        # 3) рубчик: бічна грань (xb) ↔ панель (лінія вздовж Z)
+        parts.append(_cove_prism((xb, P.BODY_FRONT_Y, zfr), (0, 0, 1),
+                                 (0, 1, 0), (tdir, 0, 0), 60.0, R))
+        # 4) рубчик: внутрішня грань (y_rib) ↔ стінка (вздовж Z)
+        parts.append(_cove_prism((xin, y_rib, zt_pl - R), (0, 0, 1),
+                                 (0, 1, 0), (tdir, 0, 0), 58.0, R))
     # 5) рейл: внутрішня межа (y_rail) ↔ стінка (вздовж Z, до кромки);
     # старт утоплений на 0.6 у плінтус — дотична мітра давала діри STL
     parts.append(_cove_prism((xin, y_rail, zt_pl - R - 0.6), (0, 0, 1),
@@ -364,8 +380,10 @@ def build():
                 # гострокутний — R2 у ніші не давав рамці сісти (фідбек)
                 Rectangle(P.FAN_D + 2 * clr, P.FAN_W + 2 * clr)
         extrude(amount=P.WALL_T + P.BEAD_W + 3)
+    # кови ДО прорізу: інакше вертикальні стрічки рубчика (3/4) повисають
+    # у повітрі поперек ніші (фідбек 2026-07-03, зелені смуги на скрінах)
+    right = right + wall_coves(P.WALL_R_X, -1, front_ribs=False)
     right = (right - fcut.part).fix()
-    right = right + wall_coves(P.WALL_R_X, -1)
 
     # МІСТОК за вентилятором (2026-07-03): відновлює неперервність стінки
     # через проріз і приймає праву пару гвинтів (M3×16 наскрізь:

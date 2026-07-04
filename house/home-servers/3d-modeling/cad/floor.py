@@ -282,17 +282,34 @@ def build():
                              (t2, ht), (-t2, ht), (-w / 2, hg), (-w / 2, 0))
                 make_face()
             extrude(tz.sketch, amount=(y1s - y0s) + 4)
-        # передній упор-стінка (зад відкритий: SATA-роз'єми + завід дисків)
+        # передній упор-МІСТОК на рівні диска (Z10-18): знизу відкрито —
+        # фронтальний вентилятор продуває канал під дисками наскрізь
+        # (суцільна стінка блокувала повітря — фідбек 2026-07-03);
+        # заразом зв'язує верхи трьох рейок спереду
         sy0, sy1 = P.SSD_STOP_Y
         with Locations(((b0 - 2.4 + a1 + 2.4) / 2, (sy0 + sy1) / 2,
-                        P.INFILL_T + P.SSD_RAIL_H / 2)):
-            Box((a1 + 2.4) - (b0 - 2.4), sy1 - sy0, P.SSD_RAIL_H)
-        # шпали-опори: низ диска на Z INFILL_T+SSD_LIFT, між ними продуви
+                        P.INFILL_T + P.SSD_LIFT + 4.0)):
+            Box((a1 + 2.4) - (b0 - 2.4), sy1 - sy0, 8.0)
+        # шпали-АРКИ: диск лежить на 2-мм палубі, під нею наскрізне вікно
+        # (суцільні постаменти блокували продув — фідбек 2026-07-03)
         for (sx0, sx1) in (P.SSD_SLOT_X):
             for sy in P.SSD_SLEEPER_Y:
                 with Locations(((sx0 + sx1) / 2, sy,
                                 P.INFILL_T + P.SSD_LIFT / 2)):
                     Box(sx1 - sx0 + 1.0, P.SSD_SLEEPER_W, P.SSD_LIFT)
+                with Locations(((sx0 + sx1) / 2, sy,
+                                P.INFILL_T + (P.SSD_LIFT - 2.0) / 2)):
+                    Box(sx1 - sx0 - 3.2, P.SSD_SLEEPER_W + 2,
+                        P.SSD_LIFT - 2.0, mode=Mode.SUBTRACT)
+        # crush-ребра: півкруглі вертикальні стовпчики на гранях рейок
+        # (диск ковзає по Y — округлість = самозавід), Z10..GRIP
+        rib_h = P.SSD_RAIL_GRIP - P.SSD_LIFT
+        for (sx0, sx1) in P.SSD_SLOT_X:
+            for fx, sgn in ((sx0, -1), (sx1, +1)):
+                for sy in P.SSD_SLEEPER_Y:
+                    with Locations((fx + sgn * P.SSD_RIB_OFF, sy,
+                                    P.INFILL_T + P.SSD_LIFT)):
+                        Cylinder(P.SSD_RIB_R, rib_h, align=AMIN)
 
         # ── наскрізні отвори ⌀4 ──
         for (x, y) in P.STANDOFF_XY.values():
