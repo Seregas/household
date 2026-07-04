@@ -86,9 +86,11 @@ def _silhouette_shapely():
     # увігнута галтель R2 → дотично на верх бортика
     pts += _arc_pts((P.WALL_REAR_Y + rc, zt + rc), rc,
                     (P.WALL_REAR_Y, zt + rc), (P.WALL_REAR_Y + rc, zt))
-    # клапоть 0.5 ПОВЕРХ бортика за точкою дотику: без нього дотичні
-    # поверхні (ков ↔ верх бортика) дають T-стики → діри в STL
-    pts += [(P.WALL_REAR_Y + rc + 0.5, zt), (P.WALL_REAR_Y + rc + 0.5, 0)]
+    # 04.07: БЕЗ клаптя — тор кутового револьва бортика в дотичній
+    # площині Y86.5 збігається з прямим філетом смуги ТОЧНО, а клапоть
+    # 0.5 за дотичною давав клин-обрив (137.7/87/7.8). T-стик дотичної
+    # у STL лікує _heal-конвеєр експортера.
+    pts += [(P.WALL_REAR_Y + rc, 0)]
     return sg.Polygon(pts).buffer(0)
 
 
@@ -118,8 +120,7 @@ def _profile_sketch():
                             RadiusArc((P.WALL_REAR_Y, zt + rc),
                                       (P.WALL_REAR_Y + rc, zt), s3 * rc)
                             Polyline((P.WALL_REAR_Y + rc, zt),
-                                     (P.WALL_REAR_Y + rc + 0.5, zt),
-                                     (P.WALL_REAR_Y + rc + 0.5, 0), (yf, 0))
+                                     (P.WALL_REAR_Y + rc, 0), (yf, 0))
                         make_face()
                     cands.append(sk.sketch)
                 except Exception:
@@ -146,18 +147,39 @@ def _bead_band(x_outer, thickness_dir, prof):
     # 2026-07-03: ПОСЛІДОВНІ філети (усі разом одним викликом OCC валить,
     # хоч кожен сегмент окремо проходить — класика). Ков R1 (R1.5+ не дається
     # через кривину R2-кова); якщо не пройде — лишається гострим (у ніші).
+    # 04.07: вікно ланцюга РОЗШИРЕНЕ до кінців силуету (yf..клапоть Y87) —
+    # обрізане [-96.2..86.55] лишало клинці-сходинки недоведеного філета
+    # біля панелі (137.49/-96.2/74.74) та на бортику (137.7/87/7.8).
+    # Торці філета поховані (0.5 у панель / у бортик) → вибіг невидимий.
+    # Вертикальні ребра НА торцях (передня/задня грані рамки) НЕ чіпаємо —
+    # їх заокруглення прорізало б жолоб у стику з панеллю/бортиком.
+    yf_lo = P.BODY_FRONT_Y - 0.6
+    y_hi = P.WALL_REAR_Y + P.REAR_COVE_R + 0.2
+
+    def in_chain(e, zmin):
+        c = e.center()
+        if not (c.Z > zmin and yf_lo - 0.1 < c.Y < y_hi + 0.1):
+            return False
+        bb = e.bounding_box()
+        # біля торців у ланцюзі лишаються ЛИШЕ поздовжні ребра силуету
+        # (біжать у YZ, size.X≈0) — вертикальні торцеві та поперечні
+        # (вздовж X: кут Y87/Z8, дотичне біля yf) валять філет цілком
+        at_end = c.Y > y_hi - 0.7 or c.Y < yf_lo + 0.7
+        return not (at_end and (bb.size.Z > 6.0 or bb.size.X > 1.0))
+
     stages = [
-        # єдиний ланцюг ВКЛЮЧНО з ковом (точка 137.9/84.52/9.84 — нескруглений
-        # низ рейла); якщо впаде — fallback нижче підхопить окремо
-        ("кромка+рейл+ков", P.CREST_R,
-         lambda c: c.Z > 8.1 and P.BODY_FRONT_Y + 0.2 < c.Y
-         < P.WALL_REAR_Y + P.REAR_COVE_R + 0.05),
-        ("кромка+рейл (fallback)", P.CREST_R,
-         lambda c: c.Z > 9.9 and P.BODY_FRONT_Y + 0.2 < c.Y < P.WALL_REAR_Y + 0.1),
+        # єдиний ланцюг: кромка+рейл (+ков, де R2 на R2-кові — no-op:
+        # кулька сідає в жолоб; справжнє вливання рейла в кутовий револьв
+        # бортика = окремий бленд-вузол «закінчення», TODO)
+        ("кромка+рейл+ков", P.CREST_R, lambda e: in_chain(e, 8.1)),
+        ("кромка+рейл (fallback)", P.CREST_R, lambda e: in_chain(e, 9.9)),
         # внутрішній контур кільця (п.1 фідбеку 2026-07-03: «скруглення мало
-        # піти далі») — ребра вздовж внутрішньої межі бортика
+        # піти далі») — ребра вздовж внутрішньої межі бортика.
+        # Задньо-нижній внутрішній кут (Y>80.5, Z<6.5) виключено: після
+        # зняття клаптя ребро там вироджене — валило ВЕСЬ ланцюг (04.07)
         ("внутрішній контур", P.CREST_R,
-         lambda c: c.Y > P.BODY_FRONT_Y + 0.2, True),
+         lambda e: in_chain(e, -1.0)
+         and not (e.center().Y > 80.5 and e.center().Z < 6.5), True),
     ]
     Sin = S.buffer(-P.BEAD_W)
     bnd_in = Sin.exterior if Sin.geom_type == 'Polygon' else None
@@ -168,16 +190,23 @@ def _bead_band(x_outer, thickness_dir, prof):
         ref = bnd_in if inner else bnd
         if ref is None:
             continue
-        try:
-            es = solid.edges().filter_by(
-                lambda e, cond=cond, ref=ref: cond(e.center())
-                and ref.distance(sg.Point(e.center().Y, e.center().Z)) < 0.3)
-            if es:
-                solid = solid.fillet(rad, list(es))
+        es = solid.edges().filter_by(
+            lambda e, cond=cond, ref=ref: cond(e)
+            and ref.distance(sg.Point(e.center().Y, e.center().Z)) < 0.3)
+        if not es:
+            continue
+        # сходинки радіуса: краще менший ков, ніж гостре ребро
+        for r in (rad, rad * 0.6, rad * 0.35):
+            try:
+                solid = solid.fillet(r, list(es))
+                if r != rad:
+                    print(f"  (i) fillet «{name}»: радіус {rad} → {r:.2f}")
                 if name.startswith("кромка"):
                     done_main = True
-        except Exception as ex:
-            print(f"  (!) fillet «{name}» не вдався:", ex)
+                break
+            except Exception as ex:
+                if r == rad * 0.35:
+                    print(f"  (!) fillet «{name}» не вдався навіть R{r:.2f}:", ex)
     return solid
 
 
@@ -237,8 +266,11 @@ def wall_part(x_outer, thickness_dir, keepouts=()):
         # трим до ЗА задню межу (+0.5): відступ -0.2 лишав шпильку-залишок
         # плити 0.2мм біля Y84.5 → щілина з філетованим бортиком (коорд.
         # користувача 137.53/84.41/26.58); спереду відступ лишається
-        with Locations(((P.BODY_FRONT_Y + 0.2 + P.WALL_REAR_Y + 0.5) / 2, 45)):
-            Rectangle(P.WALL_REAR_Y + 0.5 - P.BODY_FRONT_Y - 0.2, 70,
+        # 04.07: трим ДО фронту (-97.5, за поховану грань) — передня
+        # смужка плити 0.7 на повну висоту стирчала крізь філет бортика
+        # («полиця» Y-96.2, фідбек: 137.49/-96.2/74.74 і дзеркально)
+        with Locations(((-97.5 + P.WALL_REAR_Y + 0.5) / 2, 45)):
+            Rectangle(P.WALL_REAR_Y + 0.5 + 97.5, 70,
                       mode=Mode.INTERSECT)
     with BuildSketch() as slab_sk:
         add(prof)
@@ -292,10 +324,12 @@ def build():
     clr = P.FAN_NOTCH_CLR
     with BuildPart() as fcut:
         with BuildSketch(Plane.YZ.offset(P.WALL_R_X - P.WALL_T - P.BEAD_W - 1)):
-            with Locations((P.BODY_FRONT_Y + P.FAN_D / 2, P.FAN_CZ)):
+            with Locations((P.BODY_FRONT_Y + P.FAN_D / 2 - 1, P.FAN_CZ)):
                 # ПРЯМИЙ прямокутник: бічний профіль вентилятора (10×40)
-                # гострокутний — R2 у ніші не давав рамці сісти (фідбек)
-                Rectangle(P.FAN_D + 2 * clr, P.FAN_W + 2 * clr)
+                # гострокутний — R2 у ніші не давав рамці сісти (фідбек);
+                # передня межа на 2 вперед: інакше від рубчика лишалась
+                # мембрана 0.25, що глушила гриль (04.07: 134.56/-96.7)
+                Rectangle(P.FAN_D + 2 * clr + 2, P.FAN_W + 2 * clr)
         extrude(amount=P.WALL_T + P.BEAD_W + 3)
     right = (right - fcut.part).fix()
 

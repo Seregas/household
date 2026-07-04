@@ -333,6 +333,26 @@ def build():
                     with Locations((fx + sgn * P.SSD_RIB_OFF, sy,
                                     P.INFILL_T + P.SSD_LIFT)):
                         Cylinder(P.SSD_RIB_R, rib_h, align=AMIN)
+                    # конус зверху = лійка ребра (фідбек 04.07: «на
+                    # площинах фаски є, на циліндрах ні»)
+                    with Locations((fx + sgn * P.SSD_RIB_OFF, sy,
+                                    P.INFILL_T + P.SSD_RAIL_GRIP)):
+                        Cone(P.SSD_RIB_R, 0.2, 3.0, align=AMIN)
+        # перфорація «сотами» (фідбек 04.07): місток-упор і палуби шпал
+        # не мають бути глухими площинами — повітря проходить наскрізь
+        for scx in (((a0 + a1) / 2), ((b0 + b1) / 2)):
+            with BuildSketch(Plane((scx, -23.0, P.INFILL_T + P.SSD_LIFT + 4),
+                                   x_dir=(1, 0, 0), z_dir=(0, -1, 0))):
+                RegularPolygon(4.8 / math.sqrt(3), 6, major_radius=True,
+                               rotation=90)
+            extrude(amount=-4.0, mode=Mode.SUBTRACT)
+            for sy in P.SSD_SLEEPER_Y:
+                with BuildSketch(Plane.XY.offset(P.INFILL_T + P.SSD_LIFT
+                                                 - 2.0 - 0.5)):
+                    with Locations((scx, sy)):
+                        RegularPolygon(3.2 / math.sqrt(3), 6,
+                                       major_radius=True, rotation=90)
+                extrude(amount=3.0, mode=Mode.SUBTRACT)
 
         # ── наскрізні отвори ⌀4 ──
         for (x, y) in P.STANDOFF_XY.values():
