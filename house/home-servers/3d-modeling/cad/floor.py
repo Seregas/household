@@ -117,14 +117,14 @@ def plan_geometry():
                     continue                    # фрагмент біля постаменту → суцільний
                 holes.append(g)
 
-    # SSD-зона: соти ВСЮДИ (і під рейками, і під дисками — обдув знизу),
-    # лише обідок 2мм по периметру зони, як у RAM-вікон
-    # (суцільні смуги під рейками — «жахливі площини», фідбек 04.07)
+    # SSD-зона 05.07: підлога СУЦІЛЬНА — канал під дисками закритий знизу,
+    # потік від вентилятора мусить іти вздовж дисків до кінця (раніше соти
+    # «для обдуву знизу» — концепція потоку змінилась)
     (a0, a1), (b0, b1) = P.SSD_SLOT_X
-    y0s, y1s = P.SSD_Y[0] - 2, P.SSD_Y[1] + 2
-    zone = sg.box(b0 - 2.6, y0s, a1 + 2.6, y1s)
-    rim = zone.difference(zone.buffer(-2.0))
-    holes = [h.difference(rim) for h in holes]
+    y0s = P.SSD_Y[0] + P.SSD_B_SHIFT - 2
+    y1s = P.SSD_Y[1] + 2
+    zone = sg.box(P.SSD_INNER_X[0] - 1.0, y0s, 135.2, y1s)
+    holes = [h.difference(zone) for h in holes]
     holes = [g for h in holes for g in _polys(h)
              if g.area > 10.0 and not g.buffer(-0.6).is_empty]
     voids = unary_union([unary_union(holes), windows])
@@ -290,7 +290,7 @@ def build():
         # зовнішня рейка (при стінці) — ПОСТАМИ (повітря → ромбілі стінки),
         # середня і внутрішня — суцільні
         rails = ((P.SSD_DIV_X[0], P.SSD_DIV_X[1],
-                  ((y0s - 2, P.SSD_RAIL_Y_END),)),
+                  ((y0s + P.SSD_B_SHIFT - 4, P.SSD_RAIL_Y_END),)),
                  (P.SSD_INNER_X[0], P.SSD_INNER_X[1],
                   ((P.SSD_INNER_Y[0], P.SSD_INNER_Y[1]),)))
         for rx0, rx1, runs in rails:
@@ -316,21 +316,39 @@ def build():
         # (суцільна стінка блокувала повітря — фідбек 2026-07-03);
         # заразом зв'язує верхи трьох рейок спереду
         sy0, sy1 = P.SSD_STOP_Y
-        with Locations(((117.9 + 135.4) / 2, (sy0 + sy1) / 2,
+        # упор диска A: стінка..перегородка
+        with Locations(((124.5 + 135.4) / 2, (sy0 + sy1) / 2,
                         P.INFILL_T + P.SSD_LIFT + 4.0)):
-            Box(135.4 - 117.9, sy1 - sy0, 8.0)
-        # шпали-АРКИ: диск лежить на 2-мм палубі, під нею наскрізне вікно
-        # (суцільні постаменти блокували продув — фідбек 2026-07-03)
-        for (sx0, sx1) in (P.SSD_SLOT_X):
-            for sy in P.SSD_SLEEPER_Y:
-                with Locations(((sx0 + sx1) / 2, sy,
-                                P.INFILL_T + P.SSD_LIFT / 2)):
-                    Box(sx1 - sx0 + 1.0, P.SSD_SLEEPER_W, P.SSD_LIFT)
-                with Locations(((sx0 + sx1) / 2, sy,
-                                P.INFILL_T + (P.SSD_LIFT - 2.0) / 2)):
-                    Box(sx1 - sx0 - 3.2, P.SSD_SLEEPER_W + 2,
-                        P.SSD_LIFT - 2.0, mode=Mode.SUBTRACT)
-        # соти в бічних поверхнях суцільних рейок (фідбек 04.07: глухі
+            Box(135.4 - 124.5, sy1 - sy0, 8.0)
+        # упор диска B: на 5 попереду (Г-подібні штекери — фідбек 05.07)
+        with Locations(((117.9 + 128.1) / 2,
+                        (sy0 + sy1) / 2 + P.SSD_B_SHIFT,
+                        P.INFILL_T + P.SSD_LIFT + 4.0)):
+            Box(128.1 - 117.9, sy1 - sy0, 8.0)
+        # бобишки під гвинти дисків (05.07, замість шпал): бічні отвори
+        # SFF-8201 (14.0 і 90.6 від торця з роз'ємом) дивляться ВНИЗ —
+        # M3 знизу крізь дно; перед кожною «трамплін», щоб потік у каналі
+        # не пірнав у отвір
+        for cx, y_rear in ((130.9, P.SSD_Y[1]),
+                           (121.7, P.SSD_Y[1] + P.SSD_B_SHIFT)):
+            for off in (14.0, 90.6):
+                yb = y_rear - off
+                with Locations((cx, yb, P.INFILL_T)):
+                    Cylinder(P.SSD_BOSS_D / 2, P.SSD_LIFT, align=AMIN)
+                # ширина 6 (не 7): рампа шириною з ⌀ боса дотикалась
+                # циліндра по твірних → Т-щілини STL
+                with BuildSketch(Plane.YZ.offset(cx - 3.0)) as ramp:
+                    with BuildLine():
+                        Polyline((yb - 9.0, P.INFILL_T),
+                                 (yb - 3.2, P.INFILL_T + 4.0),
+                                 (yb - 3.2, P.INFILL_T),
+                                 (yb - 9.0, P.INFILL_T))
+                    make_face()
+                extrude(ramp.sketch, amount=6.0)
+                with Locations((cx, yb, -1)):
+                    Cylinder(P.SSD_BOSS_HOLE / 2, P.SSD_LIFT + 4,
+                             align=AMIN, mode=Mode.SUBTRACT)
+        # соти в бічних        # соти в бічних поверхнях суцільних рейок (фідбек 04.07: глухі
         # стіни 26×104 різали продув між слотами): 2 ряди AF7 наскрізь,
         # суцільні пади ±5.5 навколо crush-ребер, обідки по краях
         hex_r = 7.0 / math.sqrt(3)
@@ -353,30 +371,21 @@ def build():
         # не стовпчики, а гладкі напливи-лінзи на гранях слота — 3 на
         # підпорку (Z11.75/16.75/21.75), виступ 0.6, плавний перехід у
         # площину; повітря від кулера обтікає диск між лінзами
-        lens_faces = ((134.9, -1, P.SSD_SLEEPER_Y),          # стінка
-                      (P.SSD_DIV_X[1], +1, P.SSD_SLEEPER_Y),   # перегородка→A
-                      (P.SSD_DIV_X[0], -1, P.SSD_SLEEPER_Y),   # перегородка→B
-                      (P.SSD_INNER_X[1], +1, (30.0, 70.0)))    # рейка (у прогоні)
+        lens_faces = (
+            (P.SSD_DIV_X[1], +1, P.SSD_SLEEPER_Y),                # перег.→A
+            (P.SSD_DIV_X[0], -1,
+             tuple(y + P.SSD_B_SHIFT for y in P.SSD_SLEEPER_Y)),  # перег.→B
+            (P.SSD_INNER_X[1], +1, (25.0, 65.0)))                 # рейка→B
         for fx, din, stations in lens_faces:
             for sy in stations:
-                for bz in (11.75, 16.75, 21.75):
+                for bz in (12.5, 20.5):
                     add(Location((fx - din * 0.7, sy, bz)) * LENS)
-        # перфорація «сотами» (фідбек 04.07): місток-упор і палуби шпал
-        # не мають бути глухими площинами — повітря проходить наскрізь
-        for scx in (((a0 + a1) / 2), ((b0 + b1) / 2)):
-            with BuildSketch(Plane((scx, -23.0, P.INFILL_T + P.SSD_LIFT + 4),
-                                   x_dir=(1, 0, 0), z_dir=(0, -1, 0))):
-                RegularPolygon(4.8 / math.sqrt(3), 6, major_radius=True,
-                               rotation=90)
-            extrude(amount=-4.0, mode=Mode.SUBTRACT)
-            for sy in P.SSD_SLEEPER_Y:
-                with BuildSketch(Plane.XY.offset(P.INFILL_T + P.SSD_LIFT
-                                                 - 2.0 - 0.5)):
-                    with Locations((scx, sy)):
-                        RegularPolygon(3.2 / math.sqrt(3), 6,
-                                       major_radius=True, rotation=90)
-                extrude(amount=3.0, mode=Mode.SUBTRACT)
-
+        # перфорація «сотами» містка-упору A (палуб більше нема)
+        with BuildSketch(Plane((130.0, -23.0, P.INFILL_T + P.SSD_LIFT + 4),
+                               x_dir=(1, 0, 0), z_dir=(0, -1, 0))):
+            RegularPolygon(4.8 / math.sqrt(3), 6, major_radius=True,
+                           rotation=90)
+        extrude(amount=-4.0, mode=Mode.SUBTRACT)
         # ── наскрізні отвори ⌀4 ──
         for (x, y) in P.STANDOFF_XY.values():
             with Locations((x, y, -1)):
