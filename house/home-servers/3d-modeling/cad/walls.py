@@ -95,43 +95,60 @@ def _silhouette_shapely():
     return sg.Polygon(pts).buffer(0)
 
 
+def _arc_side(p0, p1, cc, R):
+    """Знак радіуса RadiusArc: серединою еталонної (коротшої) дуги.
+    05.07: перебір комбінацій за площею ЗРАДИВ — ков і перекат ділили
+    один знак, правильної комбінації не існувало, і «найближча площа»
+    перевернула кут профілю в увігнутий (фідбек ×2!)."""
+    a0 = math.atan2(p0[1] - cc[1], p0[0] - cc[0])
+    a1 = math.atan2(p1[1] - cc[1], p1[0] - cc[0])
+    da = a1 - a0
+    while da > math.pi:
+        da -= 2 * math.pi
+    while da < -math.pi:
+        da += 2 * math.pi
+    am = a0 + da / 2
+    M = (cc[0] + R * math.cos(am), cc[1] + R * math.sin(am))
+    for s in (R, -R):
+        try:
+            with BuildLine() as t:
+                RadiusArc(p0, p1, s)
+            mid = t.line @ 0.5
+            if (mid.X - M[0]) ** 2 + (mid.Y - M[1]) ** 2 < 0.05:
+                return s
+        except Exception:
+            continue
+    return R
+
+
 def _profile_sketch():
-    """Точний профіль (build123d, справжні дуги) у ЛОКАЛЬНІЙ площині XY
-    (x=Y, y=Z) — вся 2D-алгебра локальна, у світ лише при екструзії
-    (add() позиційованого скетча в інший скетч подвійно трансформує).
-    Бік кожної дуги перевіряється площею проти shapely-еталона."""
-    tv, ts, _ = shoulder_geometry()
-    ts2, tv2, _ = corner_geometry()
+    """Точний профіль стінки: знак КОЖНОЇ дуги — детерміновано."""
+    tv, ts, cc1 = shoulder_geometry()
+    ts2, tv2, cc2 = corner_geometry()
     yf = P.BODY_FRONT_Y - 0.5
     zt = P.RIDGE_TOP_Z
     rc = P.REAR_COVE_R
-    ref = _silhouette_shapely().area
-    cands = []
-    for s1 in (1, -1):
-        for s2 in (1, -1):
-            for s3 in (1, -1):
-                try:
-                    with BuildSketch() as sk:
-                        with BuildLine():
-                            Polyline((yf, 0), tv)
-                            RadiusArc(tv, ts, s1 * P.WALL_SWOOP_R)
-                            Line(ts, ts2)
-                            RadiusArc(ts2, tv2, s2 * P.WALL_EDGE_CORNER_R)
-                            Line(tv2, (P.WALL_REAR_Y, zt + rc))
-                            RadiusArc((P.WALL_REAR_Y, zt + rc),
-                                      (P.WALL_REAR_Y + rc, zt), s3 * rc)
-                            RadiusArc((P.WALL_REAR_Y + rc, zt),
-                                      (P.WALL_REAR_Y + rc + P.CREST_R,
-                                      zt - P.CREST_R), s3 * P.CREST_R)
-                            Polyline((P.WALL_REAR_Y + rc + P.CREST_R,
-                                     zt - P.CREST_R),
-                                     (P.WALL_REAR_Y + rc + P.CREST_R, 0),
-                                     (yf, 0))
-                        make_face()
-                    cands.append(sk.sketch)
-                except Exception:
-                    continue
-    return min(cands, key=lambda s: abs(s.area - ref))
+    ccv = (P.WALL_REAR_Y + rc, zt + rc)
+    cpr = (P.WALL_REAR_Y + rc, zt - P.CREST_R)
+    pA = (P.WALL_REAR_Y, zt + rc)
+    pB = (P.WALL_REAR_Y + rc, zt)
+    pC = (P.WALL_REAR_Y + rc + P.CREST_R, zt - P.CREST_R)
+    s1 = _arc_side(tv, ts, cc1, P.WALL_SWOOP_R)
+    s2 = _arc_side(ts2, tv2, cc2, P.WALL_EDGE_CORNER_R)
+    s3 = _arc_side(pA, pB, ccv, rc)
+    s4 = _arc_side(pB, pC, cpr, P.CREST_R)
+    with BuildSketch() as sk:
+        with BuildLine():
+            Polyline((yf, 0), tv)
+            RadiusArc(tv, ts, s1)
+            Line(ts, ts2)
+            RadiusArc(ts2, tv2, s2)
+            Line(tv2, pA)
+            RadiusArc(pA, pB, s3)
+            RadiusArc(pB, pC, s4)
+            Polyline(pC, (pC[0], 0), (yf, 0))
+        make_face()
+    return sk.sketch
 
 
 def _bead_band(x_outer, thickness_dir, prof):
@@ -250,44 +267,50 @@ def _bead_band(x_outer, thickness_dir, prof):
 
 
 def rear_ridge():
-    """Задній бортик 5×5 (Z3..8): пряма ділянка = екструзія профілю з R2
-    на зовнішньо-верхній вершині (2D!), кути = чверть-РЕВОЛЬВИ того ж
-    профілю навколо центрів планових R5-дуг, кінці — приховані коробки
-    в тілі стінок. БЕЗ 3D-філетів (вони лишали вироджені грані → діри STL).
-    Внутрішнє верхнє ребро гостре — на нього дотично сідає ков стінки."""
-    zb, zt = P.FRAME_T, P.RIDGE_TOP_Z
-    y0, y1 = P.REAR_Y - P.BEAD_W, P.REAR_Y          # 86.5 .. 91.5
-    cxl = P.WALL_L_X + P.REAR_CORNER_R              # -78.1 (центр лівої дуги)
-    cxr = P.WALL_R_X - P.REAR_CORNER_R              # 132.9 (центр правої)
-
-    def prof_sk():
-        with BuildSketch() as s:
-            with Locations(((y0 + y1) / 2, (zb + zt) / 2)):
-                Rectangle(P.BEAD_W, P.BEAD_H)
-            # 05.07: R2 на ОБОХ верхніх ребрах («в унісон» з бічним
-            # бортиком) — перекат смуги стінки сідає на переднє врівень
-            fillet(s.vertices().filter_by(
-                lambda v: v.Y > zt - 0.01), radius=2.0)
-        return s.sketch
-
+    """Задній бортик 5×5 (Z3..8), v2 05.07: ПЛАН-контур з R3-кутами
+    (2D-філети вершин) + ОДИН ланцюг R2 по всій верхній петлі — кульки
+    на переходах ставить сам OCC. Стара конструкція (профіль + чверть-
+    револьви) неявно вимагала REAR_CORNER_R == BEAD_W: з R3 револьв
+    вимахував на 2мм за стінку (bounds 139.9!)."""
+    y0, y1 = P.REAR_Y - P.BEAD_W, P.REAR_Y
     with BuildPart() as rp:
-        # пряма ділянка між центрами дуг
-        extrude(Plane.YZ.offset(cxl) * prof_sk(), amount=cxr - cxl)
-        # кутові чверть-револьви (бік обертання — перевіркою габаритів)
-        for cx, outward in ((cxl, -1), (cxr, +1)):
-            base = Plane.YZ.offset(cx) * prof_sk()
-            ax = Axis((cx, y0, 0), (0, 0, 1))
-            r1 = revolve(base, axis=ax, revolution_arc=90)
-            bb = r1.bounding_box()
-            grew_ok = (outward < 0 and bb.min.X < cx - 1) or \
-                      (outward > 0 and bb.max.X > cx + 1)
-            if not grew_ok:
-                r1 = revolve(base, axis=ax, revolution_arc=-90)
-        # приховані кінцеві коробки в тілі стінок
-        for x0, x1 in ((P.WALL_L_X, cxl), (cxr, P.WALL_R_X)):
-            with Locations(((x0 + x1) / 2, (P.WALL_REAR_Y - 1 + y0) / 2,
-                            (zb + zt) / 2)):
-                Box(x1 - x0, y0 - (P.WALL_REAR_Y - 1), P.BEAD_H)
+        with BuildSketch(Plane.XY.offset(P.FRAME_T)) as pl:
+            with BuildLine():
+                # передня межа з проміжними вершинами: переднє верхнє
+                # ребро ділиться на 3, щоб філет узяв лише середину
+                Polyline((P.WALL_L_X, y0),
+                         (P.WALL_L_X + P.BEAD_W, y0),
+                         (P.WALL_R_X - P.BEAD_W, y0),
+                         (P.WALL_R_X, y0),
+                         (P.WALL_R_X, y1), (P.WALL_L_X, y1),
+                         (P.WALL_L_X, y0))
+            make_face()
+            fillet(pl.vertices().filter_by(lambda v: v.Y > y1 - 0.01),
+                   radius=P.REAR_CORNER_R)
+        extrude(amount=P.BEAD_H)
+        # два ланцюги: біля кутів верх звужується до 2мм (дуга R3 ↔
+        # переднє ребро) — два R2 там не вміщаються; переднє скруглення
+        # в зоні кутів і не потрібне (там перекат смуги стінки), тож
+        # воно тільки у відкритій середині, з вибігами в тілі смуг
+        zt_r = P.RIDGE_TOP_Z
+        # передній перекат R2 — ВИРІЗОМ (анти-філет призма): 3D-філет
+        # на передньому ребрі неможливий (сегментація зливається на
+        # extrude, повне ребро колізує з дугами біля кутів); вибіги
+        # призми поховані в смугах стінок
+        with BuildSketch(Plane.YZ.offset(P.WALL_L_X + P.BEAD_W - 0.5)) as af:
+            with BuildLine():
+                Polyline((y0, zt_r - 2.0), (y0, zt_r),
+                         (y0 + 2.0, zt_r))
+                RadiusArc((y0 + 2.0, zt_r), (y0, zt_r - 2.0), -2.0)
+            make_face()
+        extrude(af.sketch,
+                amount=(P.WALL_R_X - P.BEAD_W + 0.5)
+                - (P.WALL_L_X + P.BEAD_W - 0.5), mode=Mode.SUBTRACT)
+        rear = rp.edges().filter_by(
+            lambda e: abs(e.center().Z - zt_r) < 1e-6
+            and e.center().Y > P.REAR_Y - P.BEAD_W + 1.0
+            and P.WALL_L_X + 0.5 < e.center().X < P.WALL_R_X - 0.5)
+        fillet(rear, radius=2.0)
     return rp.part
 
 
@@ -343,32 +366,8 @@ def wall_part(x_outer, thickness_dir, keepouts=()):
             extrude(hs.sketch, amount=thickness_dir * (P.WALL_T + 2),
                     mode=Mode.SUBTRACT)
     wall = wp.part + _bead_band(x_outer, thickness_dir, prof)
-    # 05.07 (п.1): зріз планового R5-кута корпуса — перекат смуги (до
-    # Y88.5) і хвіст плити виступали за дугу бортика (137.77/88.5/4.95).
-    # Ріжемо ОБ'ЄДНАНУ стінку (перший ccut жив у _bead_band і не чіпав
-    # плиту, а потім і зовсім загубився при перебудові вузла v3)
-    # + thickness_dir (05.07: зі знаком «-» ccx=142.9 — різав повітря)
-    ccx = x_outer + thickness_dir * P.REAR_CORNER_R
-    cy0 = P.REAR_Y - P.BEAD_W
-    with BuildPart() as ccut:
-        # 05.07 v3: зріз ПЛОЩИНОЮ по хорді дуги (спроби повторити
-        # циліндр бортика: R5 = шов-склейка, R5.05 = паралельні окрайці;
-        # хорда перетинає грань револьва трансверсально — чисто; видима
-        # пласка фасочка над гребенем бортика ~1.5мм — свідомо)
-        with BuildSketch(Plane.XY.offset(-1)) as cs:
-            with BuildLine():
-                # старт хорди на +0.2 від Y86.5: лінія оскуляції
-                # перекат↔бортик проходить рівно по (Y86.5, Z8), і різ
-                # звідти ж робив тесселяцію нездоровною (14 Т-щілин)
-                Polyline((x_outer, cy0 + 0.2),
-                         (x_outer - thickness_dir * 0.3, cy0 + 0.2),
-                         (x_outer - thickness_dir * 0.3, P.REAR_Y + 0.3),
-                         (ccx, P.REAR_Y + 0.3),
-                         (ccx, P.REAR_Y),
-                         (x_outer, cy0 + 0.2))
-            make_face()
-        extrude(cs.sketch, amount=14.0)
-    wall = (wall - ccut.part).fix()
+    # (05.07: зріз кута видалено — з REAR_CORNER_R=3 дуга кута
+    # дотична до грані стінки в кінці перекату, різати нічого)
     return wall
 
 def build():
