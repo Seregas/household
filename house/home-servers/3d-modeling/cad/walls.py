@@ -120,8 +120,13 @@ def _profile_sketch():
                             Line(tv2, (P.WALL_REAR_Y, zt + rc))
                             RadiusArc((P.WALL_REAR_Y, zt + rc),
                                       (P.WALL_REAR_Y + rc, zt), s3 * rc)
-                            Polyline((P.WALL_REAR_Y + rc, zt),
-                                     (P.WALL_REAR_Y + rc, 0), (yf, 0))
+                            RadiusArc((P.WALL_REAR_Y + rc, zt),
+                                      (P.WALL_REAR_Y + rc + P.CREST_R,
+                                      zt - P.CREST_R), s3 * P.CREST_R)
+                            Polyline((P.WALL_REAR_Y + rc + P.CREST_R,
+                                     zt - P.CREST_R),
+                                     (P.WALL_REAR_Y + rc + P.CREST_R, 0),
+                                     (yf, 0))
                         make_face()
                     cands.append(sk.sketch)
                 except Exception:
@@ -161,7 +166,7 @@ def _bead_band(x_outer, thickness_dir, prof):
     # Вертикальні ребра НА торцях (передня/задня грані рамки) НЕ чіпаємо —
     # їх заокруглення прорізало б жолоб у стику з панеллю/бортиком.
     yf_lo = P.BODY_FRONT_Y - 0.6
-    y_hi = P.WALL_REAR_Y + P.REAR_COVE_R + 0.2
+    y_hi = P.WALL_REAR_Y + P.REAR_COVE_R + P.CREST_R + 0.2
 
     def in_chain(e, zmin):
         c = e.center()
@@ -217,58 +222,6 @@ def _bead_band(x_outer, thickness_dir, prof):
                 if r == rad * 0.35:
                     print(f"  (!) fillet «{name}» не вдався навіть R{r:.2f}:", ex)
 
-    # ── ріг-галтель «в унісон» (04.07, ідея користувача): задній бортик
-    # отримує СВІЙ ков R4 уздовж стику з внутрішньою гранню стінки;
-    # спереду видирається по кову рейла і зливається з ним, ззаду
-    # згасає перед кутовим револьвом. Профілі втоплені на 0.3 в обидві
-    # грані. Секції будуються ПОЗА BuildPart (урок: вкладений BuildSketch
-    # витікає pending-гранню і розносить лофт на уламки), бік дуги —
-    # перевіркою площі.
-    rc = P.REAR_COVE_R
-    cyc = P.WALL_REAR_Y + rc                      # центр кова рейла (86.5)
-
-    def _horn_sec(xw, d, y, r):
-        if y <= cyc:
-            zb = (P.RIDGE_TOP_Z + rc) - math.sqrt(
-                max(rc * rc - (y - cyc) ** 2, 0.0))
-        else:
-            zb = P.RIDGE_TOP_Z
-        if r is None:
-            # зона підйому: верх рога рівний, але на 0.5 НИЖЧЕ верху кова
-            # (Z11.5): на Z12 верхівка ДОТИКАЛАСЬ кромки кова біля рейла —
-            # fuse розносив модель (04.07)
-            r = (P.RIDGE_TOP_Z + rc - 0.5) - zb
-        best = None
-        for s in (r, -r):
-            try:
-                with BuildSketch(Plane.XZ.offset(-y)) as cand:
-                    with BuildLine():
-                        # низ утоплено на 1.3: чейн-філет кромки кова
-                        # просідає ~1 — з 0.3 ріг висів у повітрі (fuse
-                        # розносив модель на десятки тіл)
-                        Polyline((xw - d * 0.3, zb - 1.3),
-                                 (xw - d * 0.3, zb + r),
-                                 (xw, zb + r))
-                        RadiusArc((xw, zb + r), (xw + d * r, zb), s)
-                        Polyline((xw + d * r, zb),
-                                 (xw + d * r, zb - 1.3),
-                                 (xw - d * 0.3, zb - 1.3))
-                    make_face()
-                if best is None or cand.sketch.area < best.area:
-                    best = cand.sketch
-            except Exception:
-                continue
-        return best
-
-    if True:
-        xw = x_outer + thickness_dir * P.BEAD_W
-        d = thickness_dir
-        secs = [_horn_sec(xw, d, y, r) for y, r in
-                ((83.1, None), (83.7, None), (84.5, None), (85.5, None),
-                 (86.5, rc - 0.5), (87.5, rc - 0.5), (88.5, rc - 0.5),
-                 (89.8, 2.0), (91.0, 0.4))]
-        horn = loft(sections=secs, ruled=True)
-        solid = (solid + horn).fix()
     return solid
 
 
@@ -287,8 +240,10 @@ def rear_ridge():
         with BuildSketch() as s:
             with Locations(((y0 + y1) / 2, (zb + zt) / 2)):
                 Rectangle(P.BEAD_W, P.BEAD_H)
+            # 05.07: R2 на ОБОХ верхніх ребрах («в унісон» з бічним
+            # бортиком) — перекат смуги стінки сідає на переднє врівень
             fillet(s.vertices().filter_by(
-                lambda v: v.X > y1 - 0.01 and v.Y > zt - 0.01), radius=2.0)
+                lambda v: v.Y > zt - 0.01), radius=2.0)
         return s.sketch
 
     with BuildPart() as rp:

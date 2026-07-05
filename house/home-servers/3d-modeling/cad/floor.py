@@ -285,8 +285,8 @@ def build():
         # зовнішня рейка (при стінці) — ПОСТАМИ (повітря → ромбілі стінки),
         # середня і внутрішня — суцільні
         rails = ((a1, a1 + 2.4, P.SSD_POST_Y),
-                 (b1, a0, ((y0s - 2, y1s + 2),)),
-                 (b0 - 2.4, b0, ((y0s - 2, y1s + 2),)))
+                 (b1, a0, ((y0s - 2, P.SSD_RAIL_Y_END),)),
+                 (b0 - 2.4, b0, ((y0s - 2, P.SSD_RAIL_Y_END),)))
         for rx0, rx1, runs in rails:
             cx = (rx0 + rx1) / 2
             w = rx1 - rx0
@@ -305,6 +305,10 @@ def build():
                                  (-w / 2, 0))
                     make_face()
                 extrude(tz.sketch, amount=ry1 - ry0)
+        # колона над останнім постом (67..73) до бортика бічної стінки
+        # (фідбек 05.07: «продовжи вгору до перетину з бортиком»)
+        with Locations(((a1 + a1 + 2.4) / 2, 70.0, (2.0 + 31.0) / 2)):
+            Box(2.4, 6.0, 29.0)
         # передній упор-МІСТОК на рівні диска (Z10-18): знизу відкрито —
         # фронтальний вентилятор продуває канал під дисками наскрізь
         # (суцільна стінка блокувала повітря — фідбек 2026-07-03);
@@ -332,7 +336,7 @@ def build():
             with BuildSketch(Plane.YZ.offset(rx0 - 1)) as hxs:
                 for zr, y_start in ((8.5, -17.0), (18.5, -12.5)):
                     hy = y_start
-                    while hy <= 77.5:
+                    while hy <= 68.5:
                         if all(abs(hy - ys) >= 5.5 for ys in P.SSD_SLEEPER_Y):
                             with Locations((hy, zr)):
                                 RegularPolygon(hex_r, 6, major_radius=True,
@@ -342,18 +346,16 @@ def build():
                     mode=Mode.SUBTRACT)
         # crush-ребра: півкруглі вертикальні стовпчики на гранях рейок
         # (диск ковзає по Y — округлість = самозавід), Z10..GRIP
-        rib_h = P.SSD_RAIL_GRIP - P.SSD_LIFT
+        # crush-«пупирки» = потовщення площини рейки (фідбек 05.07 v2):
+        # не стовпчики, а гладкі напливи-лінзи на гранях слота — 3 на
+        # підпорку (Z11.75/16.75/21.75), виступ 0.6, плавний перехід у
+        # площину; повітря від кулера обтікає диск між лінзами
         for (sx0, sx1) in P.SSD_SLOT_X:
-            for fx, sgn in ((sx0, -1), (sx1, +1)):
+            for fx, din in ((sx0, +1), (sx1, -1)):
                 for sy in P.SSD_SLEEPER_Y:
-                    with Locations((fx + sgn * P.SSD_RIB_OFF, sy,
-                                    P.INFILL_T + P.SSD_LIFT)):
-                        Cylinder(P.SSD_RIB_R, rib_h, align=AMIN)
-                    # конус зверху = лійка ребра (фідбек 04.07: «на
-                    # площинах фаски є, на циліндрах ні»)
-                    with Locations((fx + sgn * P.SSD_RIB_OFF, sy,
-                                    P.INFILL_T + P.SSD_RAIL_GRIP)):
-                        Cone(P.SSD_RIB_R, 0.2, 3.0, align=AMIN)
+                    for bz in (11.75, 16.75, 21.75):
+                        blob = scale(Sphere(1.0), (1.3, 2.4, 2.4))
+                        add(Location((fx - din * 0.7, sy, bz)) * blob)
         # перфорація «сотами» (фідбек 04.07): місток-упор і палуби шпал
         # не мають бути глухими площинами — повітря проходить наскрізь
         for scx in (((a0 + a1) / 2), ((b0 + b1) / 2)):
