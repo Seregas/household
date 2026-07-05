@@ -20,6 +20,11 @@ from exporter import save
 
 AMIN = (Align.CENTER, Align.CENTER, Align.MIN)
 
+# прототип «пупирки»-лінзи (05.07): сплюснутий еліпсоїд, будується ПОЗА
+# білдерами — Sphere()/scale() всередині BuildPart авто-додаються, а
+# scale ще й з Mode.REPLACE (зжер усе дно, лишивши дві лінзи; урок!)
+LENS = scale(Sphere(1.0), (1.3, 2.4, 2.4))
+
 
 def interior_box():
     """Внутрішня межа несучої рами (XY)."""
@@ -284,9 +289,10 @@ def build():
         y0s, y1s = P.SSD_Y
         # зовнішня рейка (при стінці) — ПОСТАМИ (повітря → ромбілі стінки),
         # середня і внутрішня — суцільні
-        rails = ((a1, a1 + 2.4, P.SSD_POST_Y),
-                 (b1, a0, ((y0s - 2, P.SSD_RAIL_Y_END),)),
-                 (b0 - 2.4, b0, ((y0s - 2, P.SSD_RAIL_Y_END),)))
+        rails = ((P.SSD_DIV_X[0], P.SSD_DIV_X[1],
+                  ((y0s - 2, P.SSD_RAIL_Y_END),)),
+                 (P.SSD_INNER_X[0], P.SSD_INNER_X[1],
+                  ((P.SSD_INNER_Y[0], P.SSD_INNER_Y[1]),)))
         for rx0, rx1, runs in rails:
             cx = (rx0 + rx1) / 2
             w = rx1 - rx0
@@ -305,18 +311,14 @@ def build():
                                  (-w / 2, 0))
                     make_face()
                 extrude(tz.sketch, amount=ry1 - ry0)
-        # колона над останнім постом (67..73) до бортика бічної стінки
-        # (фідбек 05.07: «продовжи вгору до перетину з бортиком»)
-        with Locations(((a1 + a1 + 2.4) / 2, 70.0, (2.0 + 31.0) / 2)):
-            Box(2.4, 6.0, 29.0)
         # передній упор-МІСТОК на рівні диска (Z10-18): знизу відкрито —
         # фронтальний вентилятор продуває канал під дисками наскрізь
         # (суцільна стінка блокувала повітря — фідбек 2026-07-03);
         # заразом зв'язує верхи трьох рейок спереду
         sy0, sy1 = P.SSD_STOP_Y
-        with Locations(((b0 - 2.4 + a1 + 2.4) / 2, (sy0 + sy1) / 2,
+        with Locations(((117.9 + 135.4) / 2, (sy0 + sy1) / 2,
                         P.INFILL_T + P.SSD_LIFT + 4.0)):
-            Box((a1 + 2.4) - (b0 - 2.4), sy1 - sy0, 8.0)
+            Box(135.4 - 117.9, sy1 - sy0, 8.0)
         # шпали-АРКИ: диск лежить на 2-мм палубі, під нею наскрізне вікно
         # (суцільні постаменти блокували продув — фідбек 2026-07-03)
         for (sx0, sx1) in (P.SSD_SLOT_X):
@@ -332,10 +334,11 @@ def build():
         # стіни 26×104 різали продув між слотами): 2 ряди AF7 наскрізь,
         # суцільні пади ±5.5 навколо crush-ребер, обідки по краях
         hex_r = 7.0 / math.sqrt(3)
-        for rx0, rx1 in ((b1, a0), (b0 - 2.4, b0)):
+        for (rx0, rx1), y_lo in ((P.SSD_DIV_X, -17.0),
+                                 (P.SSD_INNER_X, 17.5)):
             with BuildSketch(Plane.YZ.offset(rx0 - 1)) as hxs:
-                for zr, y_start in ((8.5, -17.0), (18.5, -12.5)):
-                    hy = y_start
+                for zr, y_off in ((8.5, 0.0), (18.5, 4.5)):
+                    hy = y_lo + y_off
                     while hy <= 68.5:
                         if all(abs(hy - ys) >= 5.5 for ys in P.SSD_SLEEPER_Y):
                             with Locations((hy, zr)):
@@ -350,12 +353,14 @@ def build():
         # не стовпчики, а гладкі напливи-лінзи на гранях слота — 3 на
         # підпорку (Z11.75/16.75/21.75), виступ 0.6, плавний перехід у
         # площину; повітря від кулера обтікає диск між лінзами
-        for (sx0, sx1) in P.SSD_SLOT_X:
-            for fx, din in ((sx0, +1), (sx1, -1)):
-                for sy in P.SSD_SLEEPER_Y:
-                    for bz in (11.75, 16.75, 21.75):
-                        blob = scale(Sphere(1.0), (1.3, 2.4, 2.4))
-                        add(Location((fx - din * 0.7, sy, bz)) * blob)
+        lens_faces = ((134.9, -1, P.SSD_SLEEPER_Y),          # стінка
+                      (P.SSD_DIV_X[1], +1, P.SSD_SLEEPER_Y),   # перегородка→A
+                      (P.SSD_DIV_X[0], -1, P.SSD_SLEEPER_Y),   # перегородка→B
+                      (P.SSD_INNER_X[1], +1, (30.0, 70.0)))    # рейка (у прогоні)
+        for fx, din, stations in lens_faces:
+            for sy in stations:
+                for bz in (11.75, 16.75, 21.75):
+                    add(Location((fx - din * 0.7, sy, bz)) * LENS)
         # перфорація «сотами» (фідбек 04.07): місток-упор і палуби шпал
         # не мають бути глухими площинами — повітря проходить наскрізь
         for scx in (((a0 + a1) / 2), ((b0 + b1) / 2)):
