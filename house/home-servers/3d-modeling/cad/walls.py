@@ -198,7 +198,11 @@ def _bead_band(x_outer, thickness_dir, prof):
         # піти далі»); кути засипки діри на Y78 — виключені (валять ланцюг)
         ("внутрішній контур", P.CREST_R,
          lambda e: in_chain(e, -1.0)
-         and not (77.4 < e.center().Y < 78.6), True),
+         and not (77.4 < e.center().Y < 78.6)
+         and e.center().Y < 82.0, True),
+        # внутрішні ребра ВУЗЛА (Y>82) свідомо гострі: і ланцюгом, і
+        # ребро-за-ребром OCC лишає вибіги-щілини (116 Т-дефектів);
+        # друк 0.2мм згладить (05.07)
     ]
     Sin = S.buffer(-P.BEAD_W)
     bnd_in = Sin.exterior if Sin.geom_type == 'Polygon' else None
@@ -215,17 +219,32 @@ def _bead_band(x_outer, thickness_dir, prof):
         if not es:
             continue
         # сходинки радіуса: краще менший ков, ніж гостре ребро
+        applied = False
         for r in (rad, rad * 0.6, rad * 0.35):
             try:
                 solid = solid.fillet(r, list(es))
                 if r != rad:
                     print(f"  (i) fillet «{name}»: радіус {rad} → {r:.2f}")
-                if name.startswith("кромка"):
-                    done_main = True
+                applied = True
                 break
-            except Exception as ex:
-                if r == rad * 0.35:
-                    print(f"  (!) fillet «{name}» не вдався навіть R{r:.2f}:", ex)
+            except Exception:
+                continue
+        if not applied:
+            # 05.07: ребро за ребром — одне вироджене ребро не має
+            # лишати ГОЛИМ увесь контур (п.2/п.3 фідбеку)
+            okc = 0
+            for e in es:
+                for r in (rad, rad * 0.5):
+                    try:
+                        solid = solid.fillet(r, [e])
+                        okc += 1
+                        break
+                    except Exception:
+                        continue
+            print(f"  (i) fillet «{name}»: пореброво {okc}/{len(es)}")
+            applied = okc > 0
+        if applied and name.startswith("кромка"):
+            done_main = True
 
     return solid
 
@@ -291,8 +310,13 @@ def wall_part(x_outer, thickness_dir, keepouts=()):
         # («полиця» Y-96.2, фідбек: 137.49/-96.2/74.74 і дзеркально)
         # ...і ДО ЗА задній кінець силуету (88): хвіст плити Y85..86.5
         # на повну висоту накривав гребінь лофта-«закінчення» (04.07)
-        with Locations(((-97.5 + 88.0) / 2, 45)):
-            Rectangle(88.0 + 97.5, 70,
+        # 05.07: трим від Z7 (було Z10) — повнопрофільна смуга плити
+        # нижче триму давала плато Z10 у вузлі (п.4: 137.67/82.77/10);
+        # і до Y88.7 — хвостик плити за перекатом (п.1)
+        # Z від 5.5: межа на Z7 проходила крізь тіло перекату (6..8) —
+        # Т-контакт по лінії перетину (116 щілин, 05.07)
+        with Locations(((-97.5 + 88.7) / 2, 42.75)):
+            Rectangle(88.7 + 97.5, 74.5,
                       mode=Mode.INTERSECT)
     with BuildSketch() as slab_sk:
         add(prof)
@@ -318,7 +342,34 @@ def wall_part(x_outer, thickness_dir, keepouts=()):
                     make_face()
             extrude(hs.sketch, amount=thickness_dir * (P.WALL_T + 2),
                     mode=Mode.SUBTRACT)
-    return wp.part + _bead_band(x_outer, thickness_dir, prof)
+    wall = wp.part + _bead_band(x_outer, thickness_dir, prof)
+    # 05.07 (п.1): зріз планового R5-кута корпуса — перекат смуги (до
+    # Y88.5) і хвіст плити виступали за дугу бортика (137.77/88.5/4.95).
+    # Ріжемо ОБ'ЄДНАНУ стінку (перший ccut жив у _bead_band і не чіпав
+    # плиту, а потім і зовсім загубився при перебудові вузла v3)
+    # + thickness_dir (05.07: зі знаком «-» ccx=142.9 — різав повітря)
+    ccx = x_outer + thickness_dir * P.REAR_CORNER_R
+    cy0 = P.REAR_Y - P.BEAD_W
+    with BuildPart() as ccut:
+        # 05.07 v3: зріз ПЛОЩИНОЮ по хорді дуги (спроби повторити
+        # циліндр бортика: R5 = шов-склейка, R5.05 = паралельні окрайці;
+        # хорда перетинає грань револьва трансверсально — чисто; видима
+        # пласка фасочка над гребенем бортика ~1.5мм — свідомо)
+        with BuildSketch(Plane.XY.offset(-1)) as cs:
+            with BuildLine():
+                # старт хорди на +0.2 від Y86.5: лінія оскуляції
+                # перекат↔бортик проходить рівно по (Y86.5, Z8), і різ
+                # звідти ж робив тесселяцію нездоровною (14 Т-щілин)
+                Polyline((x_outer, cy0 + 0.2),
+                         (x_outer - thickness_dir * 0.3, cy0 + 0.2),
+                         (x_outer - thickness_dir * 0.3, P.REAR_Y + 0.3),
+                         (ccx, P.REAR_Y + 0.3),
+                         (ccx, P.REAR_Y),
+                         (x_outer, cy0 + 0.2))
+            make_face()
+        extrude(cs.sketch, amount=14.0)
+    wall = (wall - ccut.part).fix()
+    return wall
 
 def build():
     # keepout-и решітки: виріз кулера (ліва), ніша вентилятора + місток (права)
