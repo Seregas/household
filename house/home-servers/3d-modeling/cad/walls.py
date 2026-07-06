@@ -375,24 +375,6 @@ def wall_part(x_outer, thickness_dir, keepouts=()):
     # дотична до грані стінки в кінці перекату, різати нічого)
     return wall
 
-def _ledge_roundover(part, xe, mdir):
-    """Roundover R2 верхнього ребра бортика-засипки (Y78..81.5, Z7):
-    3D-філет валиться на вироджених кутах → різ бокс-мінус-циліндр
-    (профіль XZ, свіп по Y). xe — грань, mdir — бік матеріалу."""
-    R = 2.0
-    with BuildPart() as rc:
-        # старт у повітрі над плінтусом (торець на Y78 = грань сходинки
-        # засипки → копланарність = нон-маніфолд); кінець 81.45 — 0.05
-        # до грані вузла, теж проти копланарності
-        with BuildSketch(Plane.XZ.offset(-77.4)) as s:
-            with Locations((xe + mdir * R / 2, 7.0 - R / 2)):
-                Rectangle(R, R)
-            with Locations((xe + mdir * R, 7.0 - R)):
-                Circle(R, mode=Mode.SUBTRACT)
-        extrude(s.sketch, amount=-(81.45 - 77.4))
-    return (part - rc.part).fix()
-
-
 def build():
     # keepout-и решітки: виріз кулера (ліва), ніша вентилятора + місток (права)
     ko_cooler = sg.box(P.COOLER_CUT_Y[0], P.COOLER_CUT_Z[0],
@@ -455,10 +437,20 @@ def build():
         with Locations((133.7, (-24.0 + 89.5) / 2, (5.2 + 70.0) / 2)):
             Box(2.4, 89.5 - (-24.0), 70.0 - 5.2)
     right = (right - dcut.part).fix()
-    # 06.07: «закруглення бортику лише до 78» — верх засипки (Z7) до
-    # задньої стінки: зліва ребро на -78.1, справа (після вікна) на 134.9
-    right = _ledge_roundover(right, P.WALL_R_X - P.WALL_T, +1)
-    left = _ledge_roundover(left, P.WALL_L_X + P.BEAD_W, -1)
+    # 06.07 v2: «закруглення бортику рами Y78..86.5, X132.9..134.9» —
+    # кромка плінтуса на ДНІ ВІКНА (Z5.2): ków «внутрішній контур»
+    # закінчується на ~78, далі ребро було гостре. Профіль = дуга R2
+    # на всю ширину смуги: (132.9, 3.2) → (134.9, 5.2), як ków поруч.
+    # (Перша спроба різала засипку на 134.9..136.9 — «утоплена
+    # площина», відкочено.)
+    with BuildPart() as lr:
+        with BuildSketch(Plane.XZ.offset(-78.0)) as s:
+            with Locations((133.9, 4.2)):
+                Rectangle(2.0, 2.0)
+            with Locations((134.9, 3.2)):
+                Circle(2.0, mode=Mode.SUBTRACT)
+        extrude(s.sketch, amount=-(86.6 - 78.0))
+    right = (right - lr.part).fix()
     # (06.07: ков уздовж дна вікна ДОДАВАВСЯ і ПРИБРАНИЙ — читався як
     # «незрозуміле підвищення рами» + давав клин біля заднього кута)
 
