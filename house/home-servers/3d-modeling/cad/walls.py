@@ -481,7 +481,27 @@ def build():
     # окреме бленд-тіло (свіп-ков уздовж стику) наступною ітерацією.
     total = left + right
 
-    return total + rear_ridge()
+    total = total + rear_ridge()
+    # 06.07: кутові ЧВЕРТЬ-РЕВОЛЬВИ на стику двох перпендикулярних
+    # скруглень (ролл бортика ⊥ крест смуги): профіль ролла обертається
+    # навколо вертикальної осі на плановому куті (x_in, 88.5) — плато
+    # смуги над бортиком отримує кульковий кут (фідбек: -78.19/86.64/8;
+    # праворуч дзеркально на 134.9)
+    y0r, ztr = P.REAR_Y - P.BEAD_W, P.RIDGE_TOP_Z
+    for xc, sweep in ((P.WALL_L_X + P.BEAD_W, -90),
+                      (P.WALL_R_X - P.WALL_T, 90)):
+        with BuildPart() as cb:
+            with BuildSketch(Plane.YZ.offset(xc)):
+                with BuildLine():
+                    Polyline((y0r, ztr - 2.0), (y0r, ztr),
+                             (y0r + 2.0, ztr))
+                    RadiusArc((y0r + 2.0, ztr), (y0r, ztr - 2.0), -2.0)
+                make_face()
+            revolve(axis=Axis((xc, y0r + 2.0, 0), (0, 0, 1)),
+                    revolution_arc=sweep)
+        total = (total - cb.part).fix()
+
+    return total
 
 
 if __name__ == "__main__":
