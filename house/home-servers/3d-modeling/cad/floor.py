@@ -454,11 +454,15 @@ def build():
                 for bz in (12.5, 20.5):
                     add(Location((fx - din * 0.25, sy, bz)) * LENS)
         # перфорація «сотами» містка-упору A (палуб більше нема)
+        # ЯВНИЙ скетч! Безіменний extrude ковтав УСІ витеклі pending-грані
+        # (профілі рейок/ванни/упорів/РАМП) і штампував кожну на -4:
+        # фантомні різи (зрізана рампа B, виїмки Z1.5, підрізана база
+        # перегородки). Урок 06.07: extrude ТІЛЬКИ з явним скетчем.
         with BuildSketch(Plane((130.0, -23.0, P.INFILL_T + P.SSD_LIFT + 4),
-                               x_dir=(1, 0, 0), z_dir=(0, -1, 0))):
+                               x_dir=(1, 0, 0), z_dir=(0, -1, 0))) as hx_sk:
             RegularPolygon(4.8 / math.sqrt(3), 6, major_radius=True,
                            rotation=90)
-        extrude(amount=-4.0, mode=Mode.SUBTRACT)
+        extrude(hx_sk.sketch, amount=-4.0, mode=Mode.SUBTRACT)
         # ── наскрізні отвори ⌀4 ──
         for (x, y) in P.STANDOFF_XY.values():
             with Locations((x, y, -1)):
