@@ -371,31 +371,22 @@ def build():
                                 P.INFILL_T + P.SSD_LIFT + 4.0)):
                     Rectangle(bx1 - bx0, 8.0)
                 if free_l:
+                    # лише ВЕРХНІЙ кут: нижній прямий, щоб підпорка
+                    # стикувалась із рівним низом (R2 лишав щілину-серп)
                     fillet(bp_.vertices().filter_by(
-                        lambda v: v.X < bx0 + 0.01), radius=2.0)
+                        lambda v: v.X < bx0 + 0.01 and v.Y > 15.0),
+                        radius=2.0)
                 with Locations((hx, P.INFILL_T + P.SSD_LIFT + 4.0)):
                     RegularPolygon(4.8 / math.sqrt(3), 6,
                                    major_radius=True, rotation=90,
                                    mode=Mode.SUBTRACT)
             extrude(bp_.sketch, amount=-(sy1 - sy0))
-        # кови на стиках упор↔бічна площина (внутрішній кут → УВІГНУТЕ
-        # скруглення, правило v2): чверть-ков R1.5 по висоті панелі
-        CVR = 1.5
-        for xf, s, yc, t in (
-                (126.9, +1, sy0, -1), (126.9, +1, sy1, +1),   # A↔перегор.
-                (134.9, -1, sy0, -1), (134.9, -1, sy1, +1),   # A↔стінка
-                (125.7, -1, sy0 + P.SSD_B_SHIFT, -1),
-                (125.7, -1, sy1 + P.SSD_B_SHIFT, +1)):        # B↔перегор.
-            with BuildSketch(Plane.XY.offset(P.INFILL_T + P.SSD_LIFT)) as ck:
-                with Locations((xf + s * CVR / 2, yc + t * CVR / 2)):
-                    Rectangle(CVR, CVR)
-                with Locations((xf + s * CVR, yc + t * CVR)):
-                    Circle(CVR, mode=Mode.SUBTRACT)
-            extrude(ck.sketch, amount=8.0)
+        # (06.07: кови на стиках упор↔стінка ДОДАНІ і ПРИБРАНІ — туди
+        # стає корпус диска, стик лишається без скруглень)
         # підпорка вільного краю упору B (панель висіла в повітрі — друк)
         with Locations((118.3 + 1.0, (sy0 + sy1) / 2 + P.SSD_B_SHIFT,
                         P.INFILL_T)):
-            Box(2.0, sy1 - sy0, P.SSD_LIFT - P.INFILL_T + 0.1, align=AMIN)
+            Box(2.0, sy1 - sy0, P.SSD_LIFT + 0.1, align=AMIN)
         # постаменти-арки з отворами (05.07 v2, фідбек): як шпали —
         # вікно пропускає потік каналу; в палубі+дні наскрізний отвір
         # M3 (бічні отвори SFF-8201: 14.0/90.6 від торця з роз'ємом),
