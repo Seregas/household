@@ -125,7 +125,8 @@ def plan_geometry():
     (a0, a1), (b0, b1) = P.SSD_SLOT_X
     y0s = P.SSD_Y[0] + P.SSD_B_SHIFT - 2
     y1s = P.SSD_Y[1] + 2
-    ssd_zone = sg.box(P.SSD_INNER_X[0] - 1.0, y0s, 135.2, y1s)
+    # від ГРАНІ рейки (06.07: смуга 115.5..116.5 поза рейкою — зайва)
+    ssd_zone = sg.box(P.SSD_INNER_X[0], y0s, 135.2, y1s)
     holes = [h.difference(ssd_zone) for h in holes]
     holes = [g for h in holes for g in _polys(h)
              if g.area > 10.0 and not g.buffer(-0.6).is_empty]
@@ -334,12 +335,17 @@ def build():
         # дно каналу A було на 1 вище за канал B — знижуємо до 2 з
         # пологими S-переходами (косинус, 6мм) на в'їзді та виїзді;
         # заразом рампи/бобишки обох каналів стають ідентичними (база Z2)
-        prof = [(-26.0, 3.05)]
+        # 06.07: спуск від Y-29 — початок ПЕРЕГОРОДКИ (було -26: блочок
+        # спуску висів окремо); рама локально доповнена до перегородки
+        # (смужка 126.9..127.9 лишалась жолобом 2мм між рамою і стінкою)
+        with Locations((127.9, -23.5, 0)):
+            Box(2.0, 11.0, 3.0, align=AMIN)
+        prof = [(-29.0, 3.05)]
         for k in range(1, 8):
             t = k / 8
-            prof.append((-26.0 + 6.0 * t,
+            prof.append((-29.0 + 6.0 * t,
                          2.0 + 1.05 * (0.5 + 0.5 * math.cos(math.pi * t))))
-        prof.append((-20.0, 2.0))
+        prof.append((-23.0, 2.0))
         prof.append((74.0, 2.0))
         for k in range(1, 8):
             t = k / 8
@@ -348,7 +354,7 @@ def build():
         prof.append((80.0, 3.05))
         with BuildSketch(Plane.YZ.offset(127.0)) as bath:
             with BuildLine():
-                Polyline(*prof, (80.0, 3.4), (-26.0, 3.4), prof[0])
+                Polyline(*prof, (80.0, 3.4), (-29.0, 3.4), prof[0])
             make_face()
         extrude(bath.sketch, amount=134.9 - 127.0, mode=Mode.SUBTRACT)
         # упори-панелі (05.07 v2): строго В МЕЖАХ свого слота (виступали
@@ -374,14 +380,19 @@ def build():
             for off in (14.0, 90.6):
                 yb = y_rear - off
                 # бокс 8.6 — втоплений 0.3 в обидві стінки каналу
-                # (палуба-місток тримається за них торцями)
-                with Locations((cx, yb, P.INFILL_T + P.SSD_LIFT / 2)):
-                    Box(8.6, P.SSD_SLEEPER_W, P.SSD_LIFT)
+                # (палуба-місток тримається за них торцями); передній B
+                # (з ніжками) розширений вліво до 116.5 — врівень із
+                # краєм заливки (фідбек 06.07)
+                legged = (cx == 121.7 and yb < P.SSD_INNER_Y[0])
+                bx0 = 116.5 if legged else cx - 4.3
+                with Locations(((bx0 + cx + 4.3) / 2, yb,
+                                P.INFILL_T + P.SSD_LIFT / 2)):
+                    Box(cx + 4.3 - bx0, P.SSD_SLEEPER_W, P.SSD_LIFT)
                 # вікно на ВСЮ ширину каналу (фідбек 06.07: бічні ніжки
                 # біля вертикальних площин прибрані — більше повітря);
                 # ВИНЯТОК — передній постамент B: зліва рейки нема
                 # (вона від Y13), місток нема за що тримати → ніжки
-                ww = 4.6 if (cx == 121.7 and yb < P.SSD_INNER_Y[0]) else 8.0
+                ww = 4.6 if legged else 8.0
                 with Locations((cx, yb, P.INFILL_T
                                 + (P.SSD_LIFT - 2.0) / 2)):
                     Box(ww, P.SSD_SLEEPER_W + 2, P.SSD_LIFT - 2.0,
