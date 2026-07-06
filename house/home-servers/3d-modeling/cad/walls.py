@@ -482,24 +482,36 @@ def build():
     total = left + right
 
     total = total + rear_ridge()
-    # 06.07: кутові ЧВЕРТЬ-РЕВОЛЬВИ на стику двох перпендикулярних
-    # скруглень (ролл бортика ⊥ крест смуги): профіль ролла обертається
-    # навколо вертикальної осі на плановому куті (x_in, 88.5) — плато
-    # смуги над бортиком отримує кульковий кут (фідбек: -78.19/86.64/8;
-    # праворуч дзеркально на 134.9)
+    # 06.07 v2: стик «ролл бортика ⊥ крест смуги» (фідбек -78.19/86.64/8,
+    # «крутити по x-y»): плато бортика під смугою стирчало над перекатом
+    # смуги. ДВА різи по готовому total (різ одного тіла безпечний; af2
+    # всередині ridge-білдера валив наступний fuse — уроки цього дня):
+    #  1) ролл-призма КРІЗЬ смугу — вежа плато геть (перекат смуги = той
+    #     самий циліндр «в унісон»: різ дотичний до її верху, T-стики
+    #     латає _heal);
+    #  2) СФЕРА-кулька у плановому куті: вісь револьва КРІЗЬ ЦЕНТР дуги
+    #     профілю (x_in ∓ 2) — револьв дуги навколо осі через її центр
+    #     дає сферу; перша спроба (вісь на краю дуги) давала «завиток»
     y0r, ztr = P.REAR_Y - P.BEAD_W, P.RIDGE_TOP_Z
-    for xc, sweep in ((P.WALL_L_X + P.BEAD_W, -90),
-                      (P.WALL_R_X - P.WALL_T, 90)):
-        with BuildPart() as cb:
-            with BuildSketch(Plane.YZ.offset(xc)):
-                with BuildLine():
-                    Polyline((y0r, ztr - 2.0), (y0r, ztr),
-                             (y0r + 2.0, ztr))
-                    RadiusArc((y0r + 2.0, ztr), (y0r, ztr - 2.0), -2.0)
-                make_face()
-            revolve(axis=Axis((xc, y0r + 2.0, 0), (0, 0, 1)),
-                    revolution_arc=sweep)
-        total = (total - cb.part).fix()
+
+    def _roll_profile(plane_x):
+        with BuildSketch(Plane.YZ.offset(plane_x)) as s:
+            with BuildLine():
+                Polyline((y0r, ztr - 2.0), (y0r, ztr), (y0r + 2.0, ztr))
+                RadiusArc((y0r + 2.0, ztr), (y0r, ztr - 2.0), -2.0)
+            make_face()
+        return s.sketch
+
+    for x_in, band_dir in ((P.WALL_L_X + P.BEAD_W, -1),
+                           (P.WALL_R_X - P.WALL_T, +1)):
+        # 1) призма крізь смугу: від грані (з виходом 0.1 у відкритий
+        #    ролл) до повітря за зовнішньою стінкою
+        with BuildPart() as rx:
+            sk1 = _roll_profile(x_in - band_dir * 0.1)
+            extrude(sk1, amount=band_dir * (P.WALL_T + 2.0 + 0.1))
+        total = (total - rx.part).fix()
+        # (сфера-кулька в куті НЕ потрібна: з наскрізним роллом кут
+        # зник — поверхня одна суцільна; сфера лише копала ямки)
 
     return total
 
