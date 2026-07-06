@@ -491,17 +491,24 @@ def build():
     # (Попередні спроби: вісь на (-78.1, 88.5) = «завиток» у тілі
     # бортика; наскрізний ролл різав здорову форму. Правий кут не
     # чіпаємо — там вікно вже все вирішило.)
+    # 06.07: те саме ПРАВОРУЧ («круто вийшло — зроби з іншого боку»),
+    # з поправкою на зрізану вікном стінку: вісь на грані ПЛИТИ (134.9,
+    # 86.5), оберт у +X (sweep -90) — кінцевий крест 134.9→136.9
+    # перетинається з наявним зовнішнім крестом (від 137.9) хребтиком
+    # на ~136.4, як і зліва в секторі
     y0r, ztr = P.REAR_Y - P.BEAD_W, P.RIDGE_TOP_Z
-    x_in = P.WALL_L_X + P.BEAD_W
-    with BuildPart() as cb:
-        with BuildSketch(Plane.YZ.offset(x_in)):
-            with BuildLine():
-                Polyline((y0r, ztr - 2.0), (y0r, ztr), (y0r + 2.0, ztr))
-                RadiusArc((y0r + 2.0, ztr), (y0r, ztr - 2.0), -2.0)
-            make_face()
-        revolve(axis=Axis((x_in, y0r, 0), (0, 0, 1)),
-                revolution_arc=90)
-    total = (total - cb.part).fix()
+    for x_in, sweep in ((P.WALL_L_X + P.BEAD_W, 90),
+                        (P.WALL_R_X - P.WALL_T, -90)):
+        with BuildPart() as cb:
+            with BuildSketch(Plane.YZ.offset(x_in)):
+                with BuildLine():
+                    Polyline((y0r, ztr - 2.0), (y0r, ztr),
+                             (y0r + 2.0, ztr))
+                    RadiusArc((y0r + 2.0, ztr), (y0r, ztr - 2.0), -2.0)
+                make_face()
+            revolve(axis=Axis((x_in, y0r, 0), (0, 0, 1)),
+                    revolution_arc=sweep)
+        total = (total - cb.part).fix()
 
     return total
 
