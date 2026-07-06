@@ -23,7 +23,9 @@ AMIN = (Align.CENTER, Align.CENTER, Align.MIN)
 # прототип «пупирки»-лінзи (05.07): сплюснутий еліпсоїд, будується ПОЗА
 # білдерами — Sphere()/scale() всередині BuildPart авто-додаються, а
 # scale ще й з Mode.REPLACE (зжер усе дно, лишивши дві лінзи; урок!)
-LENS = scale(Sphere(1.0), (1.3, 2.4, 2.4))
+# півось по нормалі 0.85 (було 1.3): лінза пробивала 1.2-стінку
+# наскрізь і горбилась із протилежного боку («дві пари пупирок»)
+LENS = scale(Sphere(1.0), (0.85, 2.4, 2.4))
 
 
 def interior_box():
@@ -315,6 +317,10 @@ def build():
                                  (t2, ht), (-t2, ht), (-w / 2, hg),
                                  (-w / 2, 0))
                     make_face()
+                    # бульнос верхньої грані вздовж (фідбек 06.07);
+                    # стінка 1.2 → максимум R0.55
+                    fillet(tz.vertices().filter_by(
+                        lambda v: v.Y > ht - 0.01), radius=0.55)
                 extrude(tz.sketch, amount=ry1 - ry0)
         # передній упор-МІСТОК на рівні диска (Z10-18): знизу відкрито —
         # фронтальний вентилятор продуває канал під дисками наскрізь
@@ -337,11 +343,11 @@ def build():
             prof.append((74.0 + 6.0 * t,
                          2.0 + 1.05 * (0.5 - 0.5 * math.cos(math.pi * t))))
         prof.append((80.0, 3.05))
-        with BuildSketch(Plane.YZ.offset(127.7)) as bath:
+        with BuildSketch(Plane.YZ.offset(127.0)) as bath:
             with BuildLine():
                 Polyline(*prof, (80.0, 3.4), (-26.0, 3.4), prof[0])
             make_face()
-        extrude(bath.sketch, amount=134.9 - 127.7, mode=Mode.SUBTRACT)
+        extrude(bath.sketch, amount=134.9 - 127.0, mode=Mode.SUBTRACT)
         # упори-панелі (05.07 v2): строго В МЕЖАХ свого слота (виступали
         # в сусідні: 125.16/-21 та 127.3/-26), якоряться в перегородці
         # (0.5 углиб) і в стінці/консоллю; кути R2; соти в ОБОХ
@@ -366,9 +372,12 @@ def build():
                 yb = y_rear - off
                 with Locations((cx, yb, P.INFILL_T + P.SSD_LIFT / 2)):
                     Box(7.8, P.SSD_SLEEPER_W, P.SSD_LIFT)
+                # вікно на ВСЮ ширину (фідбек 06.07: бічні ніжки біля
+                # вертикальних площин прибрані — більше повітря; палуба
+                # тримається торцями за стінки каналу як місток)
                 with Locations((cx, yb, P.INFILL_T
                                 + (P.SSD_LIFT - 2.0) / 2)):
-                    Box(4.6, P.SSD_SLEEPER_W + 2, P.SSD_LIFT - 2.0,
+                    Box(8.2, P.SSD_SLEEPER_W + 2, P.SSD_LIFT - 2.0,
                         mode=Mode.SUBTRACT)
                 # увігнутий трамплін (05.07 v3): 2мм, пологий (8.2),
                 # на ВСЮ ширину каналу (щілина до рейки виглядала дірою),
@@ -430,15 +439,16 @@ def build():
         # не стовпчики, а гладкі напливи-лінзи на гранях слота — 3 на
         # підпорку (Z11.75/16.75/21.75), виступ 0.6, плавний перехід у
         # площину; повітря від кулера обтікає диск між лінзами
+        # лише ПЕРЕГОРОДКА, обидві грані (рейкові «ні до чого» — геть);
+        # пара по вертикалі × 3 позиції на грань
         lens_faces = (
             (P.SSD_DIV_X[1], +1, P.SSD_SLEEPER_Y),                # перег.→A
             (P.SSD_DIV_X[0], -1,
-             tuple(y + P.SSD_B_SHIFT for y in P.SSD_SLEEPER_Y)),  # перег.→B
-            (P.SSD_INNER_X[1], +1, (25.0, 65.0)))                 # рейка→B
+             tuple(y + P.SSD_B_SHIFT for y in P.SSD_SLEEPER_Y)))  # перег.→B
         for fx, din, stations in lens_faces:
             for sy in stations:
                 for bz in (12.5, 20.5):
-                    add(Location((fx - din * 0.7, sy, bz)) * LENS)
+                    add(Location((fx - din * 0.25, sy, bz)) * LENS)
         # перфорація «сотами» містка-упору A (палуб більше нема)
         with BuildSketch(Plane((130.0, -23.0, P.INFILL_T + P.SSD_LIFT + 4),
                                x_dir=(1, 0, 0), z_dir=(0, -1, 0))):
