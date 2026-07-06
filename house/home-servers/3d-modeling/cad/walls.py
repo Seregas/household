@@ -481,7 +481,29 @@ def build():
     # окреме бленд-тіло (свіп-ков уздовж стику) наступною ітерацією.
     total = left + right
 
-    return total + rear_ridge()
+    total = total + rear_ridge()
+    # 06.07 v3 (за перерізами користувача: задній бортик YZ@-78.09 і
+    # смуга XZ@86.49 — ІДЕНТИЧНІ 5-профілі bullnose R2+1+R2): бортик
+    # стирчав над внутрішнім плечем смуги гострим кантом. Перехід =
+    # чверть-оберт ролл-різу навколо вертикальної осі У ВНУТРІШНЬОМУ
+    # КУТІ смуга×бортик (-78.1, 86.5): старт різу = ролл бортика,
+    # кінець = крест смуги (дуга центр (-80.1, 6)) — обидва точно.
+    # (Попередні спроби: вісь на (-78.1, 88.5) = «завиток» у тілі
+    # бортика; наскрізний ролл різав здорову форму. Правий кут не
+    # чіпаємо — там вікно вже все вирішило.)
+    y0r, ztr = P.REAR_Y - P.BEAD_W, P.RIDGE_TOP_Z
+    x_in = P.WALL_L_X + P.BEAD_W
+    with BuildPart() as cb:
+        with BuildSketch(Plane.YZ.offset(x_in)):
+            with BuildLine():
+                Polyline((y0r, ztr - 2.0), (y0r, ztr), (y0r + 2.0, ztr))
+                RadiusArc((y0r + 2.0, ztr), (y0r, ztr - 2.0), -2.0)
+            make_face()
+        revolve(axis=Axis((x_in, y0r, 0), (0, 0, 1)),
+                revolution_arc=90)
+    total = (total - cb.part).fix()
+
+    return total
 
 
 if __name__ == "__main__":
