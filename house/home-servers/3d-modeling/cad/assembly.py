@@ -7,7 +7,21 @@ assembly.py — збірка корпусу: дно + фронт-панель (+
 import floor
 import front
 import walls
+import params as P
+from build123d import Cylinder, Location, Mode, Align
 from exporter import save, save_parts
+
+
+def _head_holes(t):
+    """Отвори під головки M3 постаментів диска A — НАСКРІЗЬ у збірці:
+    плінтус стінки (X132.9.., Z0..5) перекривав їхній правий край
+    (фідбек 06.07: 133.57/-10.19/0). Різ до низу палуби (Z8)."""
+    amin = (Align.CENTER, Align.CENTER, Align.MIN)
+    for yb in (P.SSD_Y[1] - 14.0, P.SSD_Y[1] - 90.6):
+        c = Location((130.9, yb, -1)) * Cylinder(
+            P.SSD_HEAD_D / 2, 9.0, align=amin)
+        t = (t - c).fix()
+    return t
 
 if __name__ == "__main__":
     # ⚠️ OCC-fuse із філетованими стінками ненадійний (тихо викидає соліди
@@ -21,7 +35,7 @@ if __name__ == "__main__":
         for p in parts[1:]:
             t = t + p
         if t.is_valid and len(t.solids()) > 0 and t.volume > 0.9 * vsum:
-            tray = t
+            tray = _head_holes(t)
     except Exception:
         pass
     if tray is not None:
