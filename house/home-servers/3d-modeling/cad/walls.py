@@ -297,15 +297,17 @@ def rear_ridge():
         # на передньому ребрі неможливий (сегментація зливається на
         # extrude, повне ребро колізує з дугами біля кутів); вибіги
         # призми поховані в смугах стінок
-        with BuildSketch(Plane.YZ.offset(P.WALL_L_X + P.BEAD_W - 0.5)) as af:
+        # 06.07 (п.1): кінці рівно на гранях смуг (133.73/86.73/8 —
+        # сходинка від вибігу +0.5 під перекатом)
+        with BuildSketch(Plane.YZ.offset(P.WALL_L_X + P.BEAD_W)) as af:
             with BuildLine():
                 Polyline((y0, zt_r - 2.0), (y0, zt_r),
                          (y0 + 2.0, zt_r))
                 RadiusArc((y0 + 2.0, zt_r), (y0, zt_r - 2.0), -2.0)
             make_face()
         extrude(af.sketch,
-                amount=(P.WALL_R_X - P.BEAD_W + 0.5)
-                - (P.WALL_L_X + P.BEAD_W - 0.5), mode=Mode.SUBTRACT)
+                amount=(P.WALL_R_X - P.BEAD_W)
+                - (P.WALL_L_X + P.BEAD_W), mode=Mode.SUBTRACT)
         rear = rp.edges().filter_by(
             lambda e: abs(e.center().Z - zt_r) < 1e-6
             and e.center().Y > P.REAR_Y - P.BEAD_W + 1.0
@@ -419,9 +421,11 @@ def build():
     # перетинав диск, притиснутий до стінки (зовн. грань диска 134.3) —
     # виріз до площини плити у прольоті дисків. Зовнішній гребінь кромки,
     # плінтус (Z<8, під диском) і задній вузол — не чіпаються.
+    # 06.07 (п.5): вікно вниз до плінтуса (Z5.2) і назад до вузла
+    # (Y82.2) — «зайва площина» 132.9/80.7/6.25 під/за старим вікном
     with BuildPart() as dcut:
-        with Locations((133.7, (-24.0 + 81.0) / 2, 39.0)):
-            Box(2.4, 81.0 - (-24.0), 62.0)
+        with Locations((133.7, (-24.0 + 82.2) / 2, (5.2 + 70.0) / 2)):
+            Box(2.4, 82.2 - (-24.0), 70.0 - 5.2)
     right = (right - dcut.part).fix()
 
     # МІСТОК за вентилятором (2026-07-03): відновлює неперервність стінки
