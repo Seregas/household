@@ -34,6 +34,9 @@ if __name__ == "__main__":
         t = parts[0]
         for p in parts[1:]:
             t = t + p
+        if not t.is_valid:
+            t = t.fix()          # 08.07: fuse на глибині 113.5 віддає
+                                 # повний, але invalid солід — лікується
         if t.is_valid and len(t.solids()) > 0 and t.volume > 0.9 * vsum:
             tray = _head_holes(t)
     except Exception:
