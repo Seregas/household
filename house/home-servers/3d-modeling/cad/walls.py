@@ -466,7 +466,7 @@ def build():
             with Locations((P.WALL_R_IN, P.FRAME_T)):
                 Circle(2.0, mode=Mode.SUBTRACT)
         extrude(s.sketch,
-                amount=-((P.WALL_REAR_Y - 4.5) - (P.SSD_Y[0] - 1.0)))
+                amount=-(114.0 - (P.SSD_Y[0] - 1.0)))
     right = (right - lr.part).fix()
     # (06.07: ков уздовж дна вікна ДОДАВАВСЯ і ПРИБРАНИЙ — читався як
     # «незрозуміле підвищення рами» + давав клин біля заднього кута)
@@ -536,6 +536,8 @@ def build():
     with BuildPart() as rmp:
         with BuildSketch(Plane.YZ.offset(P.WALL_L_X + P.BEAD_W - 0.4)) as rs:
             with BuildLine():
+                # низ 2.0: над сотами (ребра 2мм) трамплін спирається на
+                # них, на рамі/ізогріді (3) втоплюється (фідбек 08.07)
                 Polyline(*arcp,
                          (P.REAR_Y - P.BEAD_W + 3.0, 8.0),
                          (P.REAR_Y - P.BEAD_W + 3.0, 2.0),
@@ -544,7 +546,7 @@ def build():
         # правий кінець 132.7 — ПЕРЕД чверть-тором кута (дотик тора з
         # верхом рампи давав 10 нон-маніфолд ребер); консоль бортика
         # 132.7..134.9 (2.2мм) друкується і так
-        extrude(rs.sketch, amount=(P.WALL_R_IN - 2.4 - 0.1)
+        extrude(rs.sketch, amount=(P.WALL_R_IN - 2.0 + 0.3)
                 - (P.WALL_L_X + P.BEAD_W - 0.4))
     total = (total + rmp.part).fix()
 
