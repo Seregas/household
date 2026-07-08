@@ -83,7 +83,9 @@ def plan_panel():
     # праворуч (за BR — суцільно під планку HBA, як і було); обідок 2.0
     # навколо кожного порту
     field = sg.box(-80.0, er, BR, P.PANEL_H - er)
-    port_pads = unary_union([p.buffer(2.0) for p in port_cuts])
+    # обідок 1.5 (08.07: 2.0 «заширокий»; 1.0 замало — торці приймають
+    # штекери наосліп, 1.5 = 3-4 периметри друку)
+    port_pads = unary_union([p.buffer(1.5) for p in port_cuts])
     field = field.difference(port_pads)
     bx, bz = P.BUTTON_XZ
     btn_pad = sg.Point(bx, bz).buffer(P.BUTTON_D / 2 + P.BUTTON_RIM, 32)
