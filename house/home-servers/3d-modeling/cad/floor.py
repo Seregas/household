@@ -57,8 +57,12 @@ def plan_geometry():
     x0, y0, x1, y1 = interior_box()
     interior = _rounded(sg.box(x0, y0, x1, y1), P.FRAME_CORNER_R)
     cx0, cy0 = (x0 + x1) / 2, (y0 + y1) / 2
-    pads = unary_union([sg.Point(x, y).buffer(P.STANDOFF_PAD_D / 2, 48)
-                        for x, y in P.STANDOFF_XY.values()])
+    # кріплення SSD-блока (3xM3) — «як постаменти» (08.07): пад ⌀20 у
+    # сотах + корона-ізогрід зверху з суцільним комірцем ⌀12
+    pads = unary_union(
+        [sg.Point(x, y).buffer(P.STANDOFF_PAD_D / 2, 48)
+         for x, y in P.STANDOFF_XY.values()]
+        + [sg.Point(mx, my).buffer(10.0, 48) for mx, my in P.SSD_MOUNT_XY])
     windows = unary_union([_rounded(sg.box(k['x'][0], k['y'][0], k['x'][1], k['y'][1]),
                                     P.RAM_WIN_R)
                            for k in P.RAM_KEEPOUT.values()])
@@ -120,16 +124,8 @@ def plan_geometry():
     # футпринтом і зона без корони (нижче). Соти скрізь — підсос знизу.
     y0s = P.SSD_Y[0] + P.SSD_B_SHIFT - 2
     y1s = P.SSD_Y[1] + 2
-    # пад ⌀12 (бонка ⌀10 з перекриттям 1мм) + ХРЕСТ-перемички 2.2мм:
-    # пад, що потрапляє цілком у соту, інакше лишається островом
-    # (сота AF18 — промені 12 гарантовано сягають ребер)
-    mount_pads = unary_union(
-        [sg.Point(mx, my).buffer(6.0) for mx, my in P.SSD_MOUNT_XY]
-        + [sg.box(mx - 12, my - 1.1, mx + 12, my + 1.1)
-           for mx, my in P.SSD_MOUNT_XY]
-        + [sg.box(mx - 1.1, my - 12, mx + 1.1, my + 12)
-           for mx, my in P.SSD_MOUNT_XY])
-    holes = [h.difference(mount_pads) for h in holes]
+    # (08.07: хрести-перемички і окремі mount-пади видалені — кріплення
+    # тепер повноцінні «постаменти» через pads вище)
     holes = [g for h in holes for g in _polys(h)
              if g.area > 10.0 and not g.buffer(-0.6).is_empty]
     voids = unary_union([unary_union(holes), windows])
@@ -139,8 +135,8 @@ def plan_geometry():
     rim = interior.exterior.buffer(0.05)
     kept, islands = [], []
     for c in _polys(solid):
-        (kept if (c.intersects(rim) or c.intersects(pads)
-                  or c.intersects(mount_pads)) else islands).append(c)
+        (kept if (c.intersects(rim) or c.intersects(pads))
+         else islands).append(c)
     solid = unary_union(kept)
     holes.extend(islands)
 
@@ -153,8 +149,9 @@ def plan_geometry():
     # коінцидентну стінку крона↔сота на X-71.1 → 6 відкритих ребер STL)
     zone = zone.buffer(-0.05)
     # зона SSD-блока без корони (полози мають стояти на рівному 2мм)
-    zone = zone.difference(sg.box(P.SSD_INNER_X[0] - 1.0, y0s - 12.0,
-                                  P.WALL_R_IN + 0.3, y1s + 6.0))
+    # (08.07: crown-killer SSD-зони ВИДАЛЕНИЙ — блок на полозах стоїть
+    # на рівні корони Z3, ізогрід під ним = опора + «залий ізогрідами»
+    # п.3; герметичної підлоги каналів давно нема)
     # відступ від RAM-вікон: модуль сідає в вікно, шар +1мм не має тертись
     zone = zone.difference(windows.buffer(0.5))
     # 08.07 (п.6): смужка МІЖ RAM-вікнами (модулі там прилягають один до
@@ -172,9 +169,10 @@ def plan_geometry():
     # (виривання гвинта) + обідок 2мм по межі зони (крайові ребра 3мм
     # заввишки не мають бути тонші 2)
     keep_r = P.STANDOFF_COLLAR_D / 2
-    base_keep = unary_union([
-        sg.Point(x, y).buffer(keep_r, 48)
-        for x, y in P.STANDOFF_XY.values()])
+    base_keep = unary_union(
+        [sg.Point(x, y).buffer(keep_r, 48)
+         for x, y in P.STANDOFF_XY.values()]
+        + [sg.Point(mx, my).buffer(6.0, 32) for mx, my in P.SSD_MOUNT_XY])
     pocket_region = zone.buffer(-2.0).difference(base_keep)
     pockets = []
     for (hx, hy) in cells:
@@ -308,13 +306,10 @@ def build():
                     RectangleRounded(wx1 - wx0, wy1 - wy0, radius=P.RAM_WIN_R)
             extrude(amount=1 + P.FRAME_T + 1, mode=Mode.SUBTRACT)
 
-        # ── SSD-блок (ssd_block.py): полози сидять на рівні РАМИ (Z3) —
-        # ззаду на задній рамі, спереду на БОНКАХ ⌀10 h=1 над падами
-        # (08.07: зріз рами скасовано, полози не підрізаються) ──
+        # ── SSD-блок (ssd_block.py): полози на рівні РАМИ (Z3) — ззаду
+        # на рамі, спереду на коронах-«постаментах» кріплень (ізогрід
+        # Z3 з комірцем ⌀12); отвори — самонарізи M3 ──
         for (mx, my) in P.SSD_MOUNT_XY:
-            with Locations((mx, my, P.INFILL_T)):
-                Cylinder(5.0, P.FRAME_T - P.INFILL_T,
-                         align=AMIN)
             with Locations((mx, my, -1)):
                 Cylinder(P.SSD_MOUNT_TAP_D / 2, P.FRAME_T + 2,
                          align=AMIN, mode=Mode.SUBTRACT)
