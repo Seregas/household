@@ -21,12 +21,7 @@ from exporter import save
 
 AMIN = (Align.CENTER, Align.CENTER, Align.MIN)
 
-# прототип «пупирки»-лінзи (05.07): сплюснутий еліпсоїд, будується ПОЗА
-# білдерами — Sphere()/scale() всередині BuildPart авто-додаються, а
-# scale ще й з Mode.REPLACE (зжер усе дно, лишивши дві лінзи; урок!)
-# півось по нормалі 0.85 (було 1.3): лінза пробивала 1.2-стінку
-# наскрізь і горбилась із протилежного боку («дві пари пупирок»)
-LENS = scale(Sphere(1.0), (0.85, 2.4, 2.4))
+# (лінзи-пупирки переїхали в ssd_block.py разом з усією SSD-геометрією)
 
 
 def interior_box():
@@ -301,246 +296,30 @@ def build():
                     RectangleRounded(wx1 - wx0, wy1 - wy0, radius=P.RAM_WIN_R)
             extrude(amount=1 + P.FRAME_T + 1, mode=Mode.SUBTRACT)
 
-        # ── рейки SSD: 3 трапеції вздовж Y (скошені боки = самозавід);
-        # диски ПРИПІДНЯТІ на шпалах — під ними канал для повітря ──
-        (a0, a1), (b0, b1) = P.SSD_SLOT_X
-        y0s, y1s = P.SSD_Y
-        # зовнішня рейка (при стінці) — ПОСТАМИ (повітря → ромбілі стінки),
-        # середня і внутрішня — суцільні
-        rails = ((P.SSD_DIV_X[0], P.SSD_DIV_X[1],
-                  ((y0s + P.SSD_B_SHIFT - 4, P.SSD_RAIL_Y_END),)),
-                 (P.SSD_INNER_X[0], P.SSD_INNER_X[1],
-                  ((P.SSD_INNER_Y[0], P.SSD_INNER_Y[1]),)))
-        for rx0, rx1, runs in rails:
-            cx = (rx0 + rx1) / 2
-            w = rx1 - rx0
-            hg, ht = P.SSD_RAIL_GRIP, P.SSD_RAIL_H
-            t2 = P.SSD_RAIL_TOP / 2
-            for ry0, ry1 in runs:
-                # x_dir=(-1,0,0): щоб локальний +y був ГЛОБАЛЬНИМ +Z
-                # (з (1,0,0) профіль ріс ВНИЗ — дно сягало Z-14)
-                with BuildSketch(Plane((cx, ry0, P.INFILL_T),
-                                       x_dir=(-1, 0, 0),
-                                       z_dir=(0, 1, 0))) as tz:
-                    with BuildLine():
-                        # прямі грані до GRIP (хват), вище — скіс-лійка
-                        Polyline((-w / 2, 0), (w / 2, 0), (w / 2, hg),
-                                 (t2, ht), (-t2, ht), (-w / 2, hg),
-                                 (-w / 2, 0))
-                    make_face()
-                    # бульнос верхньої грані вздовж (фідбек 06.07);
-                    # стінка 1.2 → максимум R0.55
-                    fillet(tz.vertices().filter_by(
-                        lambda v: v.Y > ht - 0.01), radius=0.55)
-                extrude(tz.sketch, amount=ry1 - ry0)
-        # передній упор-МІСТОК на рівні диска (Z10-18): знизу відкрито —
-        # фронтальний вентилятор продуває канал під дисками наскрізь
-        # (суцільна стінка блокувала повітря — фідбек 2026-07-03);
-        # заразом зв'язує верхи трьох рейок спереду
-        sy0, sy1 = P.SSD_STOP_Y
-        # ванна під диском A (06.07, ідея користувача): рама тут 3мм і
-        # дно каналу A було на 1 вище за канал B — знижуємо до 2 з
-        # пологими S-переходами (косинус, 6мм) на в'їзді та виїзді;
-        # заразом рампи/бобишки обох каналів стають ідентичними (база Z2)
-        # 06.07: спуск від Y-29 — початок ПЕРЕГОРОДКИ (було -26: блочок
-        # спуску висів окремо); рама локально доповнена до перегородки
-        # (смужка 126.9..127.9 лишалась жолобом 2мм між рамою і стінкою)
-        with Locations((127.9, -23.5, 0)):
-            Box(2.0, 11.0, 3.0, align=AMIN)
-        prof = [(-29.0, 3.05)]
-        for k in range(1, 8):
-            t = k / 8
-            prof.append((-29.0 + 6.0 * t,
-                         2.0 + 1.05 * (0.5 + 0.5 * math.cos(math.pi * t))))
-        prof.append((-23.0, 2.0))
-        prof.append((74.0, 2.0))
-        for k in range(1, 8):
-            t = k / 8
-            prof.append((74.0 + 6.0 * t,
-                         2.0 + 1.05 * (0.5 - 0.5 * math.cos(math.pi * t))))
-        prof.append((80.0, 3.05))
-        with BuildSketch(Plane.YZ.offset(127.0)) as bath:
-            with BuildLine():
-                Polyline(*prof, (80.0, 3.4), (-29.0, 3.4), prof[0])
-            make_face()
-        extrude(bath.sketch, amount=134.9 - 127.0, mode=Mode.SUBTRACT)
-        # упори-панелі (05.07 v2): строго В МЕЖАХ свого слота (виступали
-        # в сусідні: 125.16/-21 та 127.3/-26), якоряться в перегородці
-        # (0.5 углиб) і в стінці/консоллю; кути R2; соти в ОБОХ
-        # 06.07: кути в стінах КВАДРАТНІ (R2-дуга випиналась зі стіни
-        # опуклим завитком); R2 лише на вільному лівому краї панелі B
-        for bx0, bx1, hx, ysh, free_l in (
-                (126.4, 135.4, 130.9, 0.0, False),
-                (118.3, 126.4, 121.7, P.SSD_B_SHIFT, True)):
-            with BuildSketch(Plane.XZ.offset(-(sy0 + ysh))) as bp_:
-                with Locations(((bx0 + bx1) / 2,
-                                P.INFILL_T + P.SSD_LIFT + 4.0)):
-                    Rectangle(bx1 - bx0, 8.0)
-                if free_l:
-                    # лише ВЕРХНІЙ кут: нижній прямий, щоб підпорка
-                    # стикувалась із рівним низом (R2 лишав щілину-серп)
-                    fillet(bp_.vertices().filter_by(
-                        lambda v: v.X < bx0 + 0.01 and v.Y > 15.0),
-                        radius=2.0)
-                with Locations((hx, P.INFILL_T + P.SSD_LIFT + 4.0)):
-                    RegularPolygon(4.8 / math.sqrt(3), 6,
-                                   major_radius=True, rotation=90,
-                                   mode=Mode.SUBTRACT)
-            extrude(bp_.sketch, amount=-(sy1 - sy0))
-        # (06.07: кови на стиках упор↔стінка ДОДАНІ і ПРИБРАНІ — туди
-        # стає корпус диска, стик лишається без скруглень)
-        # підпорка вільного краю упору B (панель висіла в повітрі — друк)
-        with Locations((118.3 + 1.0, (sy0 + sy1) / 2 + P.SSD_B_SHIFT,
+        # ── SSD: уся геометрія ВИНЕСЕНА в окрему деталь (cad/ssd_block.py,
+        # 08.07 — друк лицем вниз робив рейки консолями). Тут лишаються:
+        # суцільна підлога 2мм під блоком (ssd_zone вище), зріз рами до 2
+        # під футпринтом бази (інакше база лежала б на сходинці 2/3) та
+        # отвори: 4×⌀6.2 проходи головок гвинтів дисків + 3×⌀2.9 самонаріз
+        # кріплення блока ──
+        bx0f, bx1f = P.SSD_BASE_X
+        by0f, by1f = P.SSD_BASE_Y
+        with Locations(((127.9 + 134.9) / 2, (by0f + by1f) / 2,
                         P.INFILL_T)):
-            Box(2.0, sy1 - sy0, P.SSD_LIFT + 0.1, align=AMIN)
-        # постаменти-арки з отворами (05.07 v2, фідбек): як шпали —
-        # вікно пропускає потік каналу; в палубі+дні наскрізний отвір
-        # M3 (бічні отвори SFF-8201: 14.0/90.6 від торця з роз'ємом),
-        # прикручування знизу; перед отвором — ЗАКРУГЛЕНИЙ трамплін
-        for cx, y_rear in ((130.9, P.SSD_Y[1]),
-                           (121.7, P.SSD_Y[1] + P.SSD_B_SHIFT)):
+            Box(134.9 - 127.9, by1f - by0f, P.FRAME_T - P.INFILL_T + 0.5,
+                align=AMIN, mode=Mode.SUBTRACT)
+        cxa, cxb = sum(P.SSD_CH_A) / 2, sum(P.SSD_CH_B) / 2
+        for cx, y_rear in ((cxa, P.SSD_Y[1]),
+                           (cxb, P.SSD_Y[1] + P.SSD_B_SHIFT)):
             for off in (14.0, 90.6):
-                yb = y_rear - off
-                # бокс 8.6 — втоплений 0.3 в обидві стінки каналу
-                # (палуба-місток тримається за них торцями); передній B
-                # (з ніжками) розширений вліво до 116.5 — врівень із
-                # краєм заливки (фідбек 06.07)
-                legged = (cx == 121.7 and yb < P.SSD_INNER_Y[0])
-                bx0 = 116.5 if legged else cx - 4.3
-                # A-бокси наскрізь через плиту стінки до 137.9 (фідбек
-                # 06.07: анкер для ромбілів — «щоб надійно трималась»)
-                bx1 = 137.9 if cx == 130.9 else cx + 4.3
-                with Locations(((bx0 + bx1) / 2, yb,
-                                P.INFILL_T + P.SSD_LIFT / 2)):
-                    Box(bx1 - bx0, P.SSD_SLEEPER_W, P.SSD_LIFT)
-                # вікно на ВСЮ ширину каналу (фідбек 06.07: бічні ніжки
-                # біля вертикальних площин прибрані — більше повітря);
-                # ВИНЯТОК — передній постамент B: зліва рейки нема
-                # (вона від Y13), місток нема за що тримати → ніжки
-                # legged: вікно їде разом із боксом — ніжки лишаються
-                # 2.0 як були (фідбек 06.07: «стала товщою — перенеси і
-                # внутрішню стінку»)
-                if legged:
-                    ww, wc = (cx + 4.3 - bx0) - 4.0, (bx0 + cx + 4.3) / 2
-                else:
-                    ww, wc = 8.0, cx
-                with Locations((wc, yb, P.INFILL_T
-                                + (P.SSD_LIFT - 2.0) / 2)):
-                    Box(ww, P.SSD_SLEEPER_W + 2, P.SSD_LIFT - 2.0,
-                        mode=Mode.SUBTRACT)
-                # увігнутий трамплін (05.07 v3): 2мм, пологий (8.2),
-                # на ВСЮ ширину каналу (щілина до рейки виглядала дірою),
-                # від МІСЦЕВОГО рівня підлоги (слот A стоїть на РАМІ Z3 —
-                # рампи A були поховані в ній на 1мм: «втричі коротший»);
-                # не будується де канал відкритий (рейка від Y13)
-                if cx == 130.9 or yb > P.SSD_INNER_Y[0]:
-                    zb_f = 2.0        # обидва канали: дно Z2 (ванна 06.07)
-                    rx0 = 126.8 if cx == 130.9 else 117.6
-                    rx1 = 135.0 if cx == 130.9 else 125.8
-                    R = (8.2 ** 2 + 2.0 ** 2) / (2 * 2.0)
-                    arcp = [(yb - 12.0 + d, zb_f + R
-                             - math.sqrt(R * R - d * d))
-                            for d in [8.2 * k / 8 for k in range(9)]]
-                    with BuildSketch(Plane.YZ.offset(rx0)) as ramp:
-                        with BuildLine():
-                            Polyline(*arcp, (yb - 3.8, zb_f - 0.5),
-                                     (yb - 12.0, zb_f - 0.5),
-                                     (yb - 12.0, zb_f))
-                        make_face()
-                    extrude(ramp.sketch, amount=rx1 - rx0)
-                with Locations((cx, yb, -1)):
-                    Cylinder(P.SSD_BOSS_HOLE / 2, P.SSD_LIFT + 4,
+                with Locations((cx, y_rear - off, -1)):
+                    Cylinder(P.SSD_HEAD_D / 2, P.INFILL_T + 2,
                              align=AMIN, mode=Mode.SUBTRACT)
-                # прохід у дні під головку болта + викрутку (06.07):
-                # ширший отвір лише КРІЗЬ ДНО (до Z4, палуба на 8 ціла) —
-                # головка впирається в низ палуби, тримає диск
-                with Locations((cx, yb, -1)):
-                    Cylinder(P.SSD_HEAD_D / 2, 5.0,
-                             align=AMIN, mode=Mode.SUBTRACT)
-        # (05.07: перфорація рейок ВИДАЛЕНА повністю — «треба суцільну
-        # стінку»: канал під диском має бути герметичним з боків)
-        # торці рейок заокруглені (фідбек 06.07 «Р2 на торцях»):
-        # стінка 1.2 завтовшки → фізичний максимум R0.6, беремо 0.55
-        for ex, ey in ((P.SSD_DIV_X, y0s + P.SSD_B_SHIFT - 4),
-                       (P.SSD_DIV_X, P.SSD_RAIL_Y_END),
-                       (P.SSD_INNER_X, P.SSD_INNER_Y[0]),
-                       (P.SSD_INNER_X, P.SSD_INNER_Y[1])):
-            try:
-                es = tray.edges().filter_by(
-                    lambda e: abs(e.center().Y - ey) < 0.05
-                    and ex[0] - 0.05 < e.center().X < ex[1] + 0.05
-                    and e.bounding_box().size.Z > 5)
-                if es:
-                    fillet(list(es), radius=0.55)
-            except Exception as exn:
-                print("  (!) торець рейки:", exn)
-        # верхні кути торців рейок R2 у площині Y-Z (уточнення 06.07:
-        # «гострий кут» = стик торця з верхівкою; бічний бульнос лишаємо)
-        top_z = P.INFILL_T + P.SSD_RAIL_H
-        for ex, ey in ((P.SSD_DIV_X, y0s + P.SSD_B_SHIFT - 4),
-                       (P.SSD_DIV_X, P.SSD_RAIL_Y_END),
-                       (P.SSD_INNER_X, P.SSD_INNER_Y[0]),
-                       (P.SSD_INNER_X, P.SSD_INNER_Y[1])):
-            try:
-                es = tray.edges().filter_by(
-                    lambda e: abs(e.center().Y - ey) < 0.6
-                    and abs(e.center().Z - top_z) < 0.6
-                    and ex[0] - 0.1 < e.center().X < ex[1] + 0.1)
-                if es:
-                    fillet(list(es), radius=2.0)
-            except Exception as exn:
-                print("  (!) верхній кут торця:", exn)
-        # crush-«пупирки» = потовщення площини рейки (фідбек 05.07 v2):
-        # не стовпчики, а гладкі напливи-лінзи на гранях слота — 3 на
-        # підпорку (Z11.75/16.75/21.75), виступ 0.6, плавний перехід у
-        # площину; повітря від кулера обтікає диск між лінзами
-        # лише ПЕРЕГОРОДКА, обидві грані (рейкові «ні до чого» — геть);
-        # пара по вертикалі × 3 позиції на грань
-        lens_faces = (
-            (P.SSD_DIV_X[1], +1, P.SSD_SLEEPER_Y),                # перег.→A
-            (P.SSD_DIV_X[0], -1,
-             tuple(y + P.SSD_B_SHIFT for y in P.SSD_SLEEPER_Y)))  # перег.→B
-        for fx, din, stations in lens_faces:
-            for sy in stations:
-                for bz in (12.5, 20.5):
-                    add(Location((fx - din * 0.25, sy, bz)) * LENS)
-        # перфорація «сотами» містка-упору A (палуб більше нема)
-        # (06.07: другий hex-виріз на X130.0 видалено — панель A вже має
-        # свій hex у скетчі на 130.9; разом виглядали «дві соти поряд»)
-        # ── ромбілі на бічних стінках слотів (фідбек 06.07), наскрізь ──
-        # keepout-и: лінзи-пупирки, втоплені містки-палуби, панелі-упори
-        lens_ko = [sg.box(sy - 3.5, 9.0, sy + 3.5, 24.0)
-                   for sy in list(P.SSD_SLEEPER_Y)
-                   + [y + P.SSD_B_SHIFT for y in P.SSD_SLEEPER_Y]]
-        deck_ko = [sg.box(yb - 4.6, 2.0, yb + 4.6, 11.0)
-                   for yb in (66.0, -10.6, 61.0, -15.6)]
-        stop_ko = [sg.box(-23.5, 9.0, -19.2, 19.0),
-                   sg.box(-28.5, 9.0, -24.2, 19.0)]
-        rail_fields = (
-            ((P.SSD_DIV_X[0], P.SSD_DIV_X[1]),
-             sg.box(-27.0, 4.0, P.SSD_RAIL_Y_END - 2.0, 26.0),
-             lens_ko + deck_ko + stop_ko),
-            ((P.SSD_INNER_X[0], P.SSD_INNER_X[1]),
-             sg.box(P.SSD_INNER_Y[0] + 2.0, 4.0,
-                    P.SSD_INNER_Y[1] - 2.0, 26.0),
-             [sg.box(61.0 - 4.6, 2.0, 61.0 + 4.6, 11.0)]))
-        for (rx0_, rx1_), rfield, kos in rail_fields:
-            for ko in kos:
-                rfield = rfield.difference(ko)
-            rholes = lattice.rhombille_holes(rfield, rfield.bounds[0],
-                                             rfield.bounds[1])
-            if not rholes:
-                continue
-            with BuildSketch(Plane.YZ.offset(rx0_ - 1.0)) as rl:
-                for g in rholes:
-                    g = g.simplify(0.01).buffer(0)
-                    if g.geom_type != 'Polygon' or g.area < 1.0:
-                        continue
-                    with BuildLine():
-                        Polyline(*list(g.exterior.coords)[:-1], close=True)
-                    make_face()
-            extrude(rl.sketch, amount=(rx1_ - rx0_) + 2.0,
-                    mode=Mode.SUBTRACT)        # ── наскрізні отвори ⌀4 ──
+        for (mx, my) in P.SSD_MOUNT_XY:
+            with Locations((mx, my, -1)):
+                Cylinder(P.SSD_MOUNT_TAP_D / 2, P.INFILL_T + 2,
+                         align=AMIN, mode=Mode.SUBTRACT)
+        # ── наскрізні отвори ⌀4 ──
         for (x, y) in P.STANDOFF_XY.values():
             with Locations((x, y, -1)):
                 Cylinder(P.STANDOFF_HOLE_D / 2, P.STANDOFF_TOP_Z + 2,

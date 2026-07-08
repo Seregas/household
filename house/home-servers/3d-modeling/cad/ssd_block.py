@@ -1,0 +1,243 @@
+"""
+ssd_block.py — SSD-кошик ОКРЕМОЮ ДЕТАЛЛЮ (08.07, рішення користувача):
+друк корпусу лицем вниз робив рейки недрукованими консолями → блок
+друкується окремо дном вниз і прикручується до дна корпусу.
+
+Конструкція (усе в СИСТЕМІ КОРПУСУ, щоб координати збігались зі стінкою):
+  • база 2мм (Z2..4, футпринт SSD_BASE_X×SSD_BASE_Y, кути R2);
+  • на базі — вся SSD-геометрія (перенесена з floor.py, «підлога» тепер
+    SSD_BASE_TOP=4): рейки з бульносом, перегородка, упори-панелі з hex,
+    підпорка, постаменти-містки з палубами, рампи, лінзи-пупирки,
+    ромбілі рейок, торцеві філети;
+  • кріплення: 3×M3 крізь базу (⌀3.4) у дно корпусу (самонаріз ⌀2.9);
+    гвинти дисків M3 ідуть знизу крізь дно корпусу (⌀6.2 прохід) і базу
+    (⌀6.2) до палуб (⌀3.4) — тримають диски, блок тримають власні гвинти.
+  • канал A відкритий праворуч — закривається правою стінкою корпусу
+    (диск A спирається на неї); база на 0.3 не доходить до стінки.
+
+Розкладка 08.07 (п.7): канали 7.0 (слоти 5.8), пакет до стінки (зазор до
+кулера LSI ~4.1), диски вдаль на +6 (задні кінці за краєм материнки).
+
+Запуск: .venv/bin/python cad/ssd_block.py → out/ssd_block.step/.stl
+"""
+import math
+from build123d import *
+import shapely.geometry as sg
+import params as P
+import lattice
+from exporter import save
+
+AMIN = (Align.CENTER, Align.CENTER, Align.MIN)
+
+# прототип «пупирки»-лінзи — ПОЗА білдерами (урок про Sphere/scale)
+LENS = scale(Sphere(1.0), (0.85, 2.4, 2.4))
+
+
+def build():
+    z0 = P.SSD_BASE_TOP                    # «підлога» блока = 4.0
+    (a0, a1), (b0, b1) = P.SSD_SLOT_X
+    y0s, y1s = P.SSD_Y
+    cxa = sum(P.SSD_CH_A) / 2              # 131.4, центр каналу A
+    cxb = sum(P.SSD_CH_B) / 2              # 123.2, центр каналу B
+    bx0f, bx1f = P.SSD_BASE_X
+    by0f, by1f = P.SSD_BASE_Y
+
+    with BuildPart() as blk:
+        # ── база ──
+        with BuildSketch(Plane.XY.offset(P.INFILL_T)) as bs:
+            with Locations(((bx0f + bx1f) / 2, (by0f + by1f) / 2)):
+                RectangleRounded(bx1f - bx0f, by1f - by0f, radius=2.0)
+        extrude(bs.sketch, amount=P.SSD_BASE_T)
+
+        # ── рейки: перегородка + внутрішня (профіль із лійкою, бульнос) ──
+        rails = ((P.SSD_DIV_X[0], P.SSD_DIV_X[1],
+                  ((y0s + P.SSD_B_SHIFT - 4, P.SSD_RAIL_Y_END),)),
+                 (P.SSD_INNER_X[0], P.SSD_INNER_X[1],
+                  ((P.SSD_INNER_Y[0], P.SSD_INNER_Y[1]),)))
+        for rx0, rx1, runs in rails:
+            cx = (rx0 + rx1) / 2
+            w = rx1 - rx0
+            hg, ht = P.SSD_RAIL_GRIP, P.SSD_RAIL_H
+            t2 = P.SSD_RAIL_TOP / 2
+            for ry0, ry1 in runs:
+                with BuildSketch(Plane((cx, ry0, z0),
+                                       x_dir=(-1, 0, 0),
+                                       z_dir=(0, 1, 0))) as tz:
+                    with BuildLine():
+                        Polyline((-w / 2, 0), (w / 2, 0), (w / 2, hg),
+                                 (t2, ht), (-t2, ht), (-w / 2, hg),
+                                 (-w / 2, 0))
+                    make_face()
+                    fillet(tz.vertices().filter_by(
+                        lambda v: v.Y > ht - 0.01), radius=0.55)
+                extrude(tz.sketch, amount=ry1 - ry0)
+
+        # ── упори-панелі (перед дисками) з hex-вікнами ──
+        sy0, sy1 = P.SSD_STOP_Y
+        pa0 = P.SSD_DIV_X[1] - 0.5          # анкер 0.5 у перегородку
+        pb1 = P.SSD_DIV_X[1] - 0.5 + 0.0    # (панель B — праворуч у перег.)
+        for bx0, bx1, hx, ysh, free_l in (
+                (pa0, bx1f, cxa, 0.0, False),
+                (P.SSD_SLOT_X[1][0], P.SSD_DIV_X[0] + 0.5, cxb,
+                 P.SSD_B_SHIFT, True)):
+            with BuildSketch(Plane.XZ.offset(-(sy0 + ysh))) as bp_:
+                with Locations(((bx0 + bx1) / 2, z0 + P.SSD_LIFT + 4.0)):
+                    Rectangle(bx1 - bx0, 8.0)
+                if free_l:
+                    fillet(bp_.vertices().filter_by(
+                        lambda v: v.X < bx0 + 0.01 and v.Y > z0 + 11.0),
+                        radius=2.0)
+                with Locations((hx, z0 + P.SSD_LIFT + 4.0)):
+                    RegularPolygon(4.8 / math.sqrt(3), 6,
+                                   major_radius=True, rotation=90,
+                                   mode=Mode.SUBTRACT)
+            extrude(bp_.sketch, amount=-(sy1 - sy0))
+        # підпорка вільного краю упору B
+        with Locations((P.SSD_SLOT_X[1][0] + 1.0,
+                        (sy0 + sy1) / 2 + P.SSD_B_SHIFT, z0)):
+            Box(2.0, sy1 - sy0, P.SSD_LIFT + 0.1, align=AMIN)
+
+        # ── постаменти-містки з палубами, рампи, отвори M3 ──
+        for cx, ch, y_rear in ((cxa, P.SSD_CH_A, P.SSD_Y[1]),
+                               (cxb, P.SSD_CH_B, P.SSD_Y[1] + P.SSD_B_SHIFT)):
+            for off in (14.0, 90.6):
+                yb = y_rear - off
+                legged = (cx == cxb and yb < P.SSD_INNER_Y[0])
+                bx0 = bx0f if legged else ch[0] - 0.3
+                bx1 = bx1f if cx == cxa else ch[1] + 0.3
+                with Locations(((bx0 + bx1) / 2, yb, z0 + P.SSD_LIFT / 2)):
+                    Box(bx1 - bx0, P.SSD_SLEEPER_W, P.SSD_LIFT)
+                if legged:
+                    ww = (ch[1] + 0.3 - bx0) - 4.0
+                    wc = (bx0 + ch[1] + 0.3) / 2
+                else:
+                    ww, wc = ch[1] - ch[0], cx
+                with Locations((wc, yb, z0 + (P.SSD_LIFT - 2.0) / 2)):
+                    Box(ww, P.SSD_SLEEPER_W + 2, P.SSD_LIFT - 2.0,
+                        mode=Mode.SUBTRACT)
+                # увігнутий трамплін перед отвором (2мм, пологий)
+                if cx == cxa or yb > P.SSD_INNER_Y[0]:
+                    rx0 = ch[0] - 0.1
+                    rx1 = min(ch[1] + 0.1, bx1f)
+                    R = (8.2 ** 2 + 2.0 ** 2) / (2 * 2.0)
+                    arcp = [(yb - 12.0 + d, z0 + R
+                             - math.sqrt(R * R - d * d))
+                            for d in [8.2 * k / 8 for k in range(9)]]
+                    with BuildSketch(Plane.YZ.offset(rx0)) as ramp:
+                        with BuildLine():
+                            Polyline(*arcp, (yb - 3.8, z0 - 0.5),
+                                     (yb - 12.0, z0 - 0.5),
+                                     (yb - 12.0, z0))
+                        make_face()
+                    extrude(ramp.sketch, amount=rx1 - rx0)
+                # M3 наскрізь (палуба ⌀3.4) + прохід головки крізь базу
+                with Locations((cx, yb, P.INFILL_T - 1)):
+                    Cylinder(P.SSD_BOSS_HOLE / 2, P.SSD_LIFT + 6,
+                             align=AMIN, mode=Mode.SUBTRACT)
+                with Locations((cx, yb, P.INFILL_T - 1)):
+                    Cylinder(P.SSD_HEAD_D / 2, P.SSD_BASE_T + 2,
+                             align=AMIN, mode=Mode.SUBTRACT)
+
+        # ── торцеві філети рейок (бульнос вертикалей + R2 верхніх кутів) ──
+        top_z = z0 + P.SSD_RAIL_H
+        ends = ((P.SSD_DIV_X, y0s + P.SSD_B_SHIFT - 4),
+                (P.SSD_DIV_X, P.SSD_RAIL_Y_END),
+                (P.SSD_INNER_X, P.SSD_INNER_Y[0]),
+                (P.SSD_INNER_X, P.SSD_INNER_Y[1]))
+        for ex, ey in ends:
+            try:
+                es = blk.edges().filter_by(
+                    lambda e: abs(e.center().Y - ey) < 0.05
+                    and ex[0] - 0.05 < e.center().X < ex[1] + 0.05
+                    and e.bounding_box().size.Z > 5)
+                if es:
+                    fillet(list(es), radius=0.55)
+            except Exception as exn:
+                print("  (!) торець рейки:", exn)
+        for ex, ey in ends:
+            try:
+                es = blk.edges().filter_by(
+                    lambda e: abs(e.center().Y - ey) < 0.6
+                    and abs(e.center().Z - top_z) < 0.6
+                    and ex[0] - 0.1 < e.center().X < ex[1] + 0.1)
+                if es:
+                    fillet(list(es), radius=2.0)
+            except Exception as exn:
+                print("  (!) верхній кут торця:", exn)
+
+        # ── лінзи-пупирки (лише перегородка, обидві грані, 3 станції) ──
+        lens_faces = (
+            (P.SSD_DIV_X[1], +1, P.SSD_SLEEPER_Y),
+            (P.SSD_DIV_X[0], -1,
+             tuple(y + P.SSD_B_SHIFT for y in P.SSD_SLEEPER_Y)))
+        for fx, din, stations in lens_faces:
+            for sy in stations:
+                for bz in (z0 + 10.5, z0 + 18.5):
+                    add(Location((fx - din * 0.25, sy, bz)) * LENS)
+
+        # ── ромбілі на рейках (наскрізь; keepout: лінзи/містки/упори) ──
+        deck_ys = [P.SSD_Y[1] - o for o in (14.0, 90.6)] \
+            + [P.SSD_Y[1] + P.SSD_B_SHIFT - o for o in (14.0, 90.6)]
+        lens_ko = [sg.box(sy - 3.5, z0 + 7.0, sy + 3.5, z0 + 22.0)
+                   for sy in list(P.SSD_SLEEPER_Y)
+                   + [y + P.SSD_B_SHIFT for y in P.SSD_SLEEPER_Y]]
+        deck_ko = [sg.box(yb - 4.6, P.INFILL_T, yb + 4.6, z0 + 9.0)
+                   for yb in deck_ys]
+        stop_ko = [sg.box(sy0 - 1.5, z0 + 5.0, sy1 + 1.0, z0 + 15.0),
+                   sg.box(sy0 + P.SSD_B_SHIFT - 1.5, z0 + 5.0,
+                          sy1 + P.SSD_B_SHIFT + 1.0, z0 + 15.0)]
+        rail_fields = (
+            ((P.SSD_DIV_X[0], P.SSD_DIV_X[1]),
+             sg.box(y0s + P.SSD_B_SHIFT - 2.0, z0 + 2.0,
+                    P.SSD_RAIL_Y_END - 2.0, z0 + 22.0),
+             lens_ko + deck_ko + stop_ko),
+            ((P.SSD_INNER_X[0], P.SSD_INNER_X[1]),
+             sg.box(P.SSD_INNER_Y[0] + 2.0, z0 + 2.0,
+                    P.SSD_INNER_Y[1] - 2.0, z0 + 22.0),
+             [sg.box(yb - 4.6, P.INFILL_T, yb + 4.6, z0 + 9.0)
+              for yb in deck_ys]))
+        for (rx0_, rx1_), rfield, kos in rail_fields:
+            for ko in kos:
+                rfield = rfield.difference(ko)
+            rholes = lattice.rhombille_holes(rfield, rfield.bounds[0],
+                                             rfield.bounds[1])
+            if rholes:
+                with BuildSketch(Plane.YZ.offset(rx0_ - 1.0)) as rl:
+                    for g in rholes:
+                        g = g.simplify(0.01).buffer(0)
+                        if g.geom_type != 'Polygon' or g.area < 1.0:
+                            continue
+                        with BuildLine():
+                            Polyline(*list(g.exterior.coords)[:-1],
+                                     close=True)
+                        make_face()
+                extrude(rl.sketch, amount=(rx1_ - rx0_) + 2.0,
+                        mode=Mode.SUBTRACT)
+
+        # ── кишеня під ПЛІНТУС правої стінки корпусу: внизу стінка має
+        # виступ до X132.9 (Z0..3) з дугою R2 (132.9,3.0)→(134.9,5.0) —
+        # «скруглення бортика рами»; зрізаємо з блока цей об'єм із
+        # запасом 0.3, щоб база/рампа/бокси сідали повз нього ──
+        with BuildSketch(Plane((0, by0f - 1, 0), x_dir=(1, 0, 0),
+                               z_dir=(0, -1, 0))) as pk:
+            with BuildLine():
+                Polyline((132.6, 1.5), (132.6, 3.0))
+                RadiusArc((132.6, 3.0), (134.9, 5.3), 2.3)
+                Polyline((134.9, 5.3), (135.2, 5.3), (135.2, 1.5),
+                         (132.6, 1.5))
+            make_face()
+        extrude(pk.sketch, amount=-(by1f - by0f + 2), mode=Mode.SUBTRACT)
+
+        # ── кріпильні отвори блока (3×M3 у дно корпусу) ──
+        for (mx, my) in P.SSD_MOUNT_XY:
+            with Locations((mx, my, P.INFILL_T - 1)):
+                Cylinder(P.SSD_MOUNT_D / 2, P.SSD_BASE_T + 2,
+                         align=AMIN, mode=Mode.SUBTRACT)
+
+    return blk.part
+
+
+if __name__ == "__main__":
+    part = build()
+    print("valid:", part.is_valid, "| volume:", round(part.volume, 1))
+    save(part, "ssd_block")

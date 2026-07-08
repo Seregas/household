@@ -18,7 +18,7 @@ def _head_holes(t):
     (фідбек 06.07: 133.57/-10.19/0). Різ до низу палуби (Z8)."""
     amin = (Align.CENTER, Align.CENTER, Align.MIN)
     for yb in (P.SSD_Y[1] - 14.0, P.SSD_Y[1] - 90.6):
-        c = Location((130.9, yb, -1)) * Cylinder(
+        c = Location((sum(P.SSD_CH_A) / 2, yb, -1)) * Cylinder(
             P.SSD_HEAD_D / 2, 9.0, align=amin)
         t = (t - c).fix()
     return t
