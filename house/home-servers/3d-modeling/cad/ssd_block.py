@@ -232,10 +232,13 @@ def build():
         with BuildSketch(Plane((0, by0f - 1, 0), x_dir=(1, 0, 0),
                                z_dir=(0, -1, 0))) as pk:
             with BuildLine():
-                Polyline((132.6, 1.5), (132.6, 3.0))
-                RadiusArc((132.6, 3.0), (134.9, 5.3), 2.3)
-                Polyline((134.9, 5.3), (135.2, 5.3), (135.2, 1.5),
-                         (132.6, 1.5))
+                xk = P.WALL_R_IN - 2.0 - 0.3   # край дуги плінтуса + запас
+                Polyline((xk, 1.5), (xk, P.FRAME_T))
+                RadiusArc((xk, P.FRAME_T),
+                          (P.WALL_R_IN, P.FRAME_T + 2.0 + 0.3), 2.3)
+                Polyline((P.WALL_R_IN, P.FRAME_T + 2.0 + 0.3),
+                         (P.WALL_R_IN + 0.3, P.FRAME_T + 2.0 + 0.3),
+                         (P.WALL_R_IN + 0.3, 1.5), (xk, 1.5))
             make_face()
         extrude(pk.sketch, amount=-(by1f - by0f + 2), mode=Mode.SUBTRACT)
 

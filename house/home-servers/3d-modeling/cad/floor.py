@@ -154,7 +154,7 @@ def plan_geometry():
     zone = zone.buffer(-0.05)
     # зона SSD-блока без корони (полози мають стояти на рівному 2мм)
     zone = zone.difference(sg.box(P.SSD_INNER_X[0] - 1.0, y0s - 12.0,
-                                  135.2, y1s + 6.0))
+                                  P.WALL_R_IN + 0.3, y1s + 6.0))
     # відступ від RAM-вікон: модуль сідає в вікно, шар +1мм не має тертись
     zone = zone.difference(windows.buffer(0.5))
     # 08.07 (п.6): смужка МІЖ RAM-вікнами (модулі там прилягають один до

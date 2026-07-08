@@ -448,9 +448,10 @@ def build():
     # засипка вузла (Z0..30) і бортик; бортик лишається з'єднаним нижче
     # Z5, тож паз 2.4 у ньому ззаду — наскрізний, без торців
     with BuildPart() as dcut:
-        with Locations((133.7, (P.SSD_Y[0] - 1.0 + 114.5) / 2,
+        with Locations((P.WALL_R_IN - 1.2,
+                        (P.SSD_Y[0] - 1.0 + P.REAR_Y + 1.0) / 2,
                         (5.0 + 70.0) / 2)):
-            Box(2.4, 114.5 - (P.SSD_Y[0] - 1.0), 70.0 - 5.0)
+            Box(2.4, (P.REAR_Y + 1.0) - (P.SSD_Y[0] - 1.0), 70.0 - 5.0)
     right = (right - dcut.part).fix()
     # 06.07 v2: «закруглення бортику рами Y78..86.5, X132.9..134.9» —
     # кромка плінтуса на ДНІ ВІКНА (Z5.2): ków «внутрішній контур»
@@ -460,11 +461,12 @@ def build():
     # площина», відкочено.)
     with BuildPart() as lr:
         with BuildSketch(Plane.XZ.offset(-(P.SSD_Y[0] - 1.0))) as s:
-            with Locations((133.9, 4.0)):
+            with Locations((P.WALL_R_IN - 1.0, P.FRAME_T + 1.0)):
                 Rectangle(2.0, 2.0)
-            with Locations((134.9, 3.0)):
+            with Locations((P.WALL_R_IN, P.FRAME_T)):
                 Circle(2.0, mode=Mode.SUBTRACT)
-        extrude(s.sketch, amount=-(100.0 - (P.SSD_Y[0] - 1.0)))
+        extrude(s.sketch,
+                amount=-((P.WALL_REAR_Y - 4.5) - (P.SSD_Y[0] - 1.0)))
     right = (right - lr.part).fix()
     # (06.07: ков уздовж дна вікна ДОДАВАВСЯ і ПРИБРАНИЙ — читався як
     # «незрозуміле підвищення рами» + давав клин біля заднього кута)
@@ -540,7 +542,8 @@ def build():
         # правий кінець 132.7 — ПЕРЕД чверть-тором кута (дотик тора з
         # верхом рампи давав 10 нон-маніфолд ребер); консоль бортика
         # 132.7..134.9 (2.2мм) друкується і так
-        extrude(rs.sketch, amount=132.4 - (P.WALL_L_X + P.BEAD_W - 0.4))
+        extrude(rs.sketch, amount=(P.WALL_R_IN - 2.4 - 0.1)
+                - (P.WALL_L_X + P.BEAD_W - 0.4))
     total = (total + rmp.part).fix()
 
     return total
