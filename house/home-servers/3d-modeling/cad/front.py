@@ -338,17 +338,8 @@ def build():
                              (xi, rear + 0.1))
                 make_face()
         extrude(wedges.sketch, amount=(fz1 - fz0) + 0.5, mode=Mode.SUBTRACT)
-        # друкарські фаски 45° під щоками (04.07): консолі 4/8мм висіли
-        # в повітрі і вимагали підтримок — тепер самонесучі
-        for side, dpt in ((-1, P.LSI_FORK_D), (+1, P.LSI_FORK_D_R)):
-            xi = P.LSI_X + side * hw
-            xo = xi + side * bw
-            with BuildSketch(Plane.YZ.offset(min(xi, xo))) as chf:
-                with BuildLine():
-                    Polyline((-96.4, fz0 - dpt), (-96.4 + dpt, fz0),
-                             (-96.4, fz0), (-96.4, fz0 - dpt))
-                make_face()
-            extrude(chf.sketch, amount=abs(xo - xi))
+        # (08.07: друкарські фаски під щоками ВИДАЛЕНІ — друк лицем
+        # вниз, щоки ростуть вертикально і самонесучі)
 
     return fp.part
 

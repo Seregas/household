@@ -120,8 +120,15 @@ def plan_geometry():
     # футпринтом і зона без корони (нижче). Соти скрізь — підсос знизу.
     y0s = P.SSD_Y[0] + P.SSD_B_SHIFT - 2
     y1s = P.SSD_Y[1] + 2
-    mount_pads = unary_union([sg.Point(mx, my).buffer(5.0)
-                              for mx, my in P.SSD_MOUNT_XY])
+    # пад ⌀12 (бонка ⌀10 з перекриттям 1мм) + ХРЕСТ-перемички 2.2мм:
+    # пад, що потрапляє цілком у соту, інакше лишається островом
+    # (сота AF18 — промені 12 гарантовано сягають ребер)
+    mount_pads = unary_union(
+        [sg.Point(mx, my).buffer(6.0) for mx, my in P.SSD_MOUNT_XY]
+        + [sg.box(mx - 12, my - 1.1, mx + 12, my + 1.1)
+           for mx, my in P.SSD_MOUNT_XY]
+        + [sg.box(mx - 1.1, my - 12, mx + 1.1, my + 12)
+           for mx, my in P.SSD_MOUNT_XY])
     holes = [h.difference(mount_pads) for h in holes]
     holes = [g for h in holes for g in _polys(h)
              if g.area > 10.0 and not g.buffer(-0.6).is_empty]
@@ -132,7 +139,8 @@ def plan_geometry():
     rim = interior.exterior.buffer(0.05)
     kept, islands = [], []
     for c in _polys(solid):
-        (kept if (c.intersects(rim) or c.intersects(pads)) else islands).append(c)
+        (kept if (c.intersects(rim) or c.intersects(pads)
+                  or c.intersects(mount_pads)) else islands).append(c)
     solid = unary_union(kept)
     holes.extend(islands)
 
@@ -239,6 +247,12 @@ def build():
                 with BuildLine():
                     Polyline(*list(g.exterior.coords)[:-1], close=True)
                 make_face()
+                # внутрішні кільця (напр. пад кріплення ЦІЛКОМ усередині
+                # соти): без цього острів зникав — бонка висіла в повітрі
+                for ring in g.interiors:
+                    with BuildLine():
+                        Polyline(*list(ring.coords)[:-1], close=True)
+                    make_face(mode=Mode.SUBTRACT)
         extrude(amount=1 + P.INFILL_T + 0.5, mode=Mode.SUBTRACT)
 
         # ── вирізи під RAM-модулі (наскрізні вікна; кути R1) ──
@@ -294,21 +308,15 @@ def build():
                     RectangleRounded(wx1 - wx0, wy1 - wy0, radius=P.RAM_WIN_R)
             extrude(amount=1 + P.FRAME_T + 1, mode=Mode.SUBTRACT)
 
-        # ── SSD-блок (ssd_block.py): у дні — зріз рами до 2 під
-        # футпринтом бази (інакше полози на сходинці 2/3) і 3×⌀2.9
-        # самонарізи кріплення ──
-        bx0f, bx1f = P.SSD_BASE_X
-        by0f, by1f = P.SSD_BASE_Y
-        with Locations(((127.9 + 134.9) / 2, (by0f + by1f) / 2,
-                        P.INFILL_T)):
-            Box(134.9 - 127.9, by1f - by0f, P.FRAME_T - P.INFILL_T + 0.5,
-                align=AMIN, mode=Mode.SUBTRACT)
-        # (08.07: проходи головок гвинтів дисків ВИДАЛЕНІ — диски
-        # прикручуються до БЛОКА до його встановлення; до корпусу
-        # кріпиться лише сам блок трьома самонарізами)
+        # ── SSD-блок (ssd_block.py): полози сидять на рівні РАМИ (Z3) —
+        # ззаду на задній рамі, спереду на БОНКАХ ⌀10 h=1 над падами
+        # (08.07: зріз рами скасовано, полози не підрізаються) ──
         for (mx, my) in P.SSD_MOUNT_XY:
+            with Locations((mx, my, P.INFILL_T)):
+                Cylinder(5.0, P.FRAME_T - P.INFILL_T,
+                         align=AMIN)
             with Locations((mx, my, -1)):
-                Cylinder(P.SSD_MOUNT_TAP_D / 2, P.INFILL_T + 2,
+                Cylinder(P.SSD_MOUNT_TAP_D / 2, P.FRAME_T + 2,
                          align=AMIN, mode=Mode.SUBTRACT)
         # ── наскрізні отвори ⌀4 ──
         for (x, y) in P.STANDOFF_XY.values():

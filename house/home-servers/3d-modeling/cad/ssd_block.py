@@ -45,16 +45,18 @@ def build():
     with BuildPart() as blk:
         # ── база на ПОЛОЗАХ (08.07): 3 лижі 3мм під рейками — продув
         # під базою (дно корпусу там соти); мости бази між полозами 6-7мм
-        with BuildSketch(Plane.XY.offset(P.INFILL_T + P.SSD_SKID_H)) as bs:
+        with BuildSketch(Plane.XY.offset(P.SSD_SIT_Z + P.SSD_SKID_H)) as bs:
             with Locations(((bx0f + bx1f) / 2, (by0f + by1f) / 2)):
                 RectangleRounded(bx1f - bx0f, by1f - by0f, radius=2.0)
         extrude(bs.sketch, amount=P.SSD_BASE_T)
         for sk0, sk1 in ((bx0f, bx0f + 3.0),
                          (P.SSD_DIV_X[0] - 0.6, P.SSD_DIV_X[1] + 0.9),
                          (bx1f - 3.0, bx1f)):
-            with BuildSketch(Plane.XY.offset(P.INFILL_T)) as sks:
-                with Locations(((sk0 + sk1) / 2, (by0f + by1f) / 2)):
-                    RectangleRounded(sk1 - sk0, by1f - by0f, radius=1.0)
+            with BuildSketch(Plane.XY.offset(P.SSD_SIT_Z)) as sks:
+                with Locations(((sk0 + sk1) / 2,
+                                (by0f + P.SSD_SKID_Y1) / 2)):
+                    RectangleRounded(sk1 - sk0, P.SSD_SKID_Y1 - by0f,
+                                     radius=1.0)
             extrude(sks.sketch, amount=P.SSD_SKID_H + 0.1)
 
         # ── рейки: перегородка + внутрішня (профіль із лійкою, бульнос) ──
@@ -139,10 +141,10 @@ def build():
                         make_face()
                     extrude(ramp.sketch, amount=rx1 - rx0)
                 # M3 наскрізь (палуба ⌀3.4) + прохід головки крізь базу
-                with Locations((cx, yb, P.INFILL_T - 1)):
+                with Locations((cx, yb, P.SSD_SIT_Z - 1)):
                     Cylinder(P.SSD_BOSS_HOLE / 2, P.SSD_LIFT + 6,
                              align=AMIN, mode=Mode.SUBTRACT)
-                with Locations((cx, yb, P.INFILL_T - 1)):
+                with Locations((cx, yb, P.SSD_SIT_Z - 1)):
                     Cylinder(P.SSD_HEAD_D / 2,
                              P.SSD_SKID_H + P.SSD_BASE_T + 2,
                              align=AMIN, mode=Mode.SUBTRACT)
@@ -190,7 +192,7 @@ def build():
         lens_ko = [sg.box(sy - 3.5, z0 + 7.0, sy + 3.5, z0 + 22.0)
                    for sy in list(P.SSD_SLEEPER_Y)
                    + [y + P.SSD_B_SHIFT for y in P.SSD_SLEEPER_Y]]
-        deck_ko = [sg.box(yb - 4.6, P.INFILL_T, yb + 4.6, z0 + 9.0)
+        deck_ko = [sg.box(yb - 4.6, P.SSD_SIT_Z, yb + 4.6, z0 + 9.0)
                    for yb in deck_ys]
         stop_ko = [sg.box(sy0 - 1.5, z0 + 5.0, sy1 + 1.0, z0 + 15.0),
                    sg.box(sy0 + P.SSD_B_SHIFT - 1.5, z0 + 5.0,
@@ -203,7 +205,7 @@ def build():
             ((P.SSD_INNER_X[0], P.SSD_INNER_X[1]),
              sg.box(P.SSD_INNER_Y[0] + 2.0, z0 + 2.0,
                     P.SSD_INNER_Y[1] - 2.0, z0 + 22.0),
-             [sg.box(yb - 4.6, P.INFILL_T, yb + 4.6, z0 + 9.0)
+             [sg.box(yb - 4.6, P.SSD_SIT_Z, yb + 4.6, z0 + 9.0)
               for yb in deck_ys]))
         for (rx0_, rx1_), rfield, kos in rail_fields:
             for ko in kos:
@@ -239,7 +241,7 @@ def build():
 
         # ── кріпильні отвори блока (3×M3 у дно корпусу) ──
         for (mx, my) in P.SSD_MOUNT_XY:
-            with Locations((mx, my, P.INFILL_T - 1)):
+            with Locations((mx, my, P.SSD_SIT_Z - 1)):
                 Cylinder(P.SSD_MOUNT_D / 2,
                          P.SSD_SKID_H + P.SSD_BASE_T + 2,
                          align=AMIN, mode=Mode.SUBTRACT)
