@@ -88,7 +88,7 @@ def build():
         pb1 = P.SSD_DIV_X[1] - 0.5 + 0.0    # (панель B — праворуч у перег.)
         for bx0, bx1, hx, ysh, free_l in (
                 (pa0, bx1f, cxa, 0.0, False),
-                (P.SSD_SLOT_X[1][0], P.SSD_DIV_X[0] + 0.5, cxb,
+                (P.SSD_INNER_X[0], P.SSD_DIV_X[0] + 0.5, cxb,
                  P.SSD_B_SHIFT, True)):
             with BuildSketch(Plane.XZ.offset(-(sy0 + ysh))) as bp_:
                 with Locations(((bx0 + bx1) / 2, z0 + P.SSD_LIFT + 4.0)):
@@ -102,10 +102,8 @@ def build():
                                    major_radius=True, rotation=90,
                                    mode=Mode.SUBTRACT)
             extrude(bp_.sketch, amount=-(sy1 - sy0))
-        # підпорка вільного краю упору B
-        with Locations((P.SSD_SLOT_X[1][0] + 1.0,
-                        (sy0 + sy1) / 2 + P.SSD_B_SHIFT, z0)):
-            Box(2.0, sy1 - sy0, P.SSD_LIFT + 0.1, align=AMIN)
+        # (08.07: підпорка упору B видалена — рейка продовжена вперед
+        # до упору і зрощена з ним, тримає його лівий край)
 
         # ── постаменти-містки з палубами, рампи, отвори M3 ──
         for cx, ch, y_rear in ((cxa, P.SSD_CH_A, P.SSD_Y[1]),

@@ -126,6 +126,12 @@ def plan_geometry():
     y1s = P.SSD_Y[1] + 2
     # (08.07: хрести-перемички і окремі mount-пади видалені — кріплення
     # тепер повноцінні «постаменти» через pads вище)
+    # смуга ПІД ТРАМПЛІНОМ бортика — суцільна (соти лишали його підошву
+    # над дірками: 36.9/100.9 — «має на чомусь стояти»); задня рама від
+    # 103.5 і так суцільна
+    ramp_strip = sg.box(P.WALL_L_X + P.BEAD_W - 0.5, 97.5,
+                        P.WALL_R_IN + 0.4, 104.0)
+    holes = [h.difference(ramp_strip) for h in holes]
     holes = [g for h in holes for g in _polys(h)
              if g.area > 10.0 and not g.buffer(-0.6).is_empty]
     voids = unary_union([unary_union(holes), windows])
