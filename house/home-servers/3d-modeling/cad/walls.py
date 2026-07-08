@@ -165,9 +165,12 @@ def _bead_band(x_outer, thickness_dir, prof):
         # 05.07: засипка ЛИШЕ плінтус-висотою (Z0..7) — повна давала
         # «прямокутник» на внутрішній грані (фідбек: 132.9/78.76/7.29,
         # «має бути продовження нижнього бортика»); зона вузла — повна
-        with Locations((82.5, 3.5)):
+        # 08.07: засипки ПАРАМЕТРИЧНО від WALL_REAR_Y (хардкоди 82.5/85.2
+        # лишались на СТАРОМУ місці після подовження REAR_EXT 10→32 —
+        # «старий спуск» 134.9/84.84/17.5 посеред прогону)
+        with Locations((P.WALL_REAR_Y, 3.5)):
             Rectangle(9.0, 7.0)
-        with Locations((85.2, 15)):
+        with Locations((P.WALL_REAR_Y + 2.7, 15)):
             Rectangle(7.4, 30.0)
         add(prof, mode=Mode.INTERSECT)
     with BuildPart() as bp:
@@ -215,8 +218,8 @@ def _bead_band(x_outer, thickness_dir, prof):
         # піти далі»); кути засипки діри на Y78 — виключені (валять ланцюг)
         ("внутрішній контур", P.CREST_R,
          lambda e: in_chain(e, -1.0)
-         and not (77.4 < e.center().Y < 78.6)
-         and e.center().Y < 82.0, True),
+         and not (P.WALL_REAR_Y - 5.1 < e.center().Y < P.WALL_REAR_Y - 3.9)
+         and e.center().Y < P.WALL_REAR_Y - 0.5, True),
         # внутрішні ребра ВУЗЛА (Y>82) свідомо гострі: і ланцюгом, і
         # ребро-за-ребром OCC лишає вибіги-щілини (116 Т-дефектів);
         # друк 0.2мм згладить (05.07)
