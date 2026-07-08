@@ -43,11 +43,19 @@ def build():
     by0f, by1f = P.SSD_BASE_Y
 
     with BuildPart() as blk:
-        # ── база ──
-        with BuildSketch(Plane.XY.offset(P.INFILL_T)) as bs:
+        # ── база на ПОЛОЗАХ (08.07): 3 лижі 3мм під рейками — продув
+        # під базою (дно корпусу там соти); мости бази між полозами 6-7мм
+        with BuildSketch(Plane.XY.offset(P.INFILL_T + P.SSD_SKID_H)) as bs:
             with Locations(((bx0f + bx1f) / 2, (by0f + by1f) / 2)):
                 RectangleRounded(bx1f - bx0f, by1f - by0f, radius=2.0)
         extrude(bs.sketch, amount=P.SSD_BASE_T)
+        for sk0, sk1 in ((bx0f, bx0f + 3.0),
+                         (P.SSD_DIV_X[0] - 0.6, P.SSD_DIV_X[1] + 0.9),
+                         (bx1f - 3.0, bx1f)):
+            with BuildSketch(Plane.XY.offset(P.INFILL_T)) as sks:
+                with Locations(((sk0 + sk1) / 2, (by0f + by1f) / 2)):
+                    RectangleRounded(sk1 - sk0, by1f - by0f, radius=1.0)
+            extrude(sks.sketch, amount=P.SSD_SKID_H + 0.1)
 
         # ── рейки: перегородка + внутрішня (профіль із лійкою, бульнос) ──
         rails = ((P.SSD_DIV_X[0], P.SSD_DIV_X[1],
@@ -135,7 +143,8 @@ def build():
                     Cylinder(P.SSD_BOSS_HOLE / 2, P.SSD_LIFT + 6,
                              align=AMIN, mode=Mode.SUBTRACT)
                 with Locations((cx, yb, P.INFILL_T - 1)):
-                    Cylinder(P.SSD_HEAD_D / 2, P.SSD_BASE_T + 2,
+                    Cylinder(P.SSD_HEAD_D / 2,
+                             P.SSD_SKID_H + P.SSD_BASE_T + 2,
                              align=AMIN, mode=Mode.SUBTRACT)
 
         # ── торцеві філети рейок (бульнос вертикалей + R2 верхніх кутів) ──
@@ -231,7 +240,8 @@ def build():
         # ── кріпильні отвори блока (3×M3 у дно корпусу) ──
         for (mx, my) in P.SSD_MOUNT_XY:
             with Locations((mx, my, P.INFILL_T - 1)):
-                Cylinder(P.SSD_MOUNT_D / 2, P.SSD_BASE_T + 2,
+                Cylinder(P.SSD_MOUNT_D / 2,
+                         P.SSD_SKID_H + P.SSD_BASE_T + 2,
                          align=AMIN, mode=Mode.SUBTRACT)
 
     return blk.part

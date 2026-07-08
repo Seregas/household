@@ -123,7 +123,11 @@ def plan_geometry():
     y1s = P.SSD_Y[1] + 2
     # від ГРАНІ рейки (06.07: смуга 115.5..116.5 поза рейкою — зайва)
     ssd_zone = sg.box(P.SSD_INNER_X[0], y0s, 135.2, y1s)
-    holes = [h.difference(ssd_zone) for h in holes]
+    # 08.07: блок на полозах → СОТИ в зоні ПОВЕРТАЮТЬСЯ (підсос знизу);
+    # суцільними лишаються пади ⌀10 під самонарізи кріплення блока
+    mount_pads = unary_union([sg.Point(mx, my).buffer(5.0)
+                              for mx, my in P.SSD_MOUNT_XY])
+    holes = [h.difference(mount_pads) for h in holes]
     holes = [g for h in holes for g in _polys(h)
              if g.area > 10.0 and not g.buffer(-0.6).is_empty]
     voids = unary_union([unary_union(holes), windows])
