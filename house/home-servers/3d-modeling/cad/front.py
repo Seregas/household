@@ -14,6 +14,7 @@ from build123d import *
 import shapely.geometry as sg
 from shapely.ops import unary_union
 import params as P
+import ioports
 from exporter import save
 
 
@@ -38,16 +39,10 @@ def plan_panel():
                        P.PANEL_CORNER_R)
 
     holes = []
-    # ── I/O-апертура ──
-    ap = _rounded(sg.box(P.IO_X[0], P.IO_Z[0], P.IO_X[1], P.IO_Z[1]), P.IO_R)
-    if P.PRINT_RIBS:
-        # жертовні перемички: міст 159мм → 4 прольоти по ~40 (зрізати
-        # кусачками після друку; кромки зачистити перед щитком I/O)
-        for k in (0.2, 0.4, 0.6, 0.8):
-            xc = P.IO_X[0] + k * (P.IO_X[1] - P.IO_X[0])
-            ap = ap.difference(sg.box(xc - P.PRINT_RIB_W / 2, P.IO_Z[0] - 1,
-                                      xc + P.PRINT_RIB_W / 2, P.IO_Z[1] + 1))
-    holes.append(ap)
+    # ── I/O: ВЛАСНІ вирізи портів замість апертури під щиток (08.07,
+    # рішення користувача; таблиця IO_PORTS відкалібрована смужкою) ──
+    port_cuts = ioports.port_polys()
+    holes.extend(port_cuts)
     # ── слоти вушок (вертикальні стадіони) ──
     for xc in P.EAR_SLOT_XC:
         for z0, z1 in P.EAR_SLOT_Z:
@@ -84,10 +79,12 @@ def plan_panel():
     jR = math.floor((P.FIELD_R_X + tip_inset - cx0) / (dx / 2))
     BR = cx0 + jR * dx / 2 - tip_inset          # ≈ 125.05
 
-    # низ правої зони = низ апертури (5.3); верх — з відступом er
-    field = sg.box(P.IO_X[0], P.IO_Z[1] + P.PANEL_RIM,
-                   BR, P.PANEL_H - er).union(
-            sg.box(BL, P.IO_Z[0], BR, P.PANEL_H - er))
+    # 08.07: поле = ВСЯ панель (апертури/окантовки більше нема) до BR
+    # праворуч (за BR — суцільно під планку HBA, як і було); обідок 2.0
+    # навколо кожного порту
+    field = sg.box(-80.0, er, BR, P.PANEL_H - er)
+    port_pads = unary_union([p.buffer(2.0) for p in port_cuts])
+    field = field.difference(port_pads)
     bx, bz = P.BUTTON_XZ
     btn_pad = sg.Point(bx, bz).buffer(P.BUTTON_D / 2 + P.BUTTON_RIM, 32)
     field = field.difference(btn_pad)
@@ -133,7 +130,7 @@ def plan_panel():
                 # дорізка»): кишеня ріжеться, пад/обід вирізається з неї
                 pk = rb.buffer(-ero).buffer(P.RHOMB_R, quad_segs=8) \
                        .intersection(field).difference(screw_pads) \
-                       .difference(btn_pad)
+                       .difference(btn_pad).difference(port_pads)
                 for g in _polys(pk):
                     # ріжемо й часткові шматки по краях (границя області має
                     # проглядатись); фільтр лише проти пилу: <1.5мм², вужчі ~0.7

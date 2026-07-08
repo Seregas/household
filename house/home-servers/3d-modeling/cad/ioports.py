@@ -31,3 +31,24 @@ def port_shapes():
                                      radius=min(rr, (h + 2 * c) / 2 - 0.1))
         out.append((name, s.sketch))
     return out
+
+
+def port_polys():
+    """Ті самі вирізи shapely-полігонами в площині (X, Z) моделі —
+    для 2D-розкладки фронт-панелі (plan_panel)."""
+    import shapely.geometry as sg
+    out = []
+    c = P.IO_CLEAR
+    for name, kind, sx, sz, w, h in P.IO_PORTS:
+        x = P.IO_SHIELD_X0 + sx
+        if kind == "round":
+            z = P.IO_SHIELD_Z0 + sz
+            out.append(sg.Point(x, z).buffer(w / 2 + c, 24))
+        else:
+            rr = 2.0 if name == "typec" else 1.2
+            rr = min(rr, (h + 2 * c) / 2 - 0.1)
+            z0 = P.IO_SHIELD_Z0 + sz - c
+            out.append(sg.box(x - w / 2 - c + rr, z0 + rr,
+                              x + w / 2 + c - rr,
+                              z0 + h + 2 * c - rr).buffer(rr, 16))
+    return out
