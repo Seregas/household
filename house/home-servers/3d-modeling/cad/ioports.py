@@ -10,19 +10,19 @@ import params as P
 
 
 def port_shapes():
-    """Список (name, Sketch-об'єкт у площині XZ моделі): x = IO_BOARD_X0+bx,
-    z = BOARD_Z + bz (+h/2 для rect; для round bz вже центр)."""
+    """Список (name, Sketch-об'єкт у площині XZ моделі): x = IO_SHIELD_X0+sx,
+    z = IO_SHIELD_Z0 + sz (+h/2 для rect; для round sz вже центр)."""
     out = []
     c = P.IO_CLEAR
-    for name, kind, bx, bz, w, h in P.IO_PORTS:
-        x = P.IO_BOARD_X0 + bx
+    for name, kind, sx, sz, w, h in P.IO_PORTS:
+        x = P.IO_SHIELD_X0 + sx
         if kind == "round":
-            z = P.BOARD_Z + bz
+            z = P.IO_SHIELD_Z0 + sz
             with BuildSketch() as s:
                 with Locations((x, z)):
                     Circle(w / 2 + c)
         else:
-            z = P.BOARD_Z + bz + h / 2
+            z = P.IO_SHIELD_Z0 + sz + h / 2
             with BuildSketch() as s:
                 with Locations((x, z)):
                     RectangleRounded(w + 2 * c, h + 2 * c,

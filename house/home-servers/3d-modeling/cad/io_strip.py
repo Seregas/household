@@ -11,7 +11,7 @@ from exporter import save
 
 
 def build():
-    xs = [P.IO_BOARD_X0 + p[2] for p in P.IO_PORTS]
+    xs = [P.IO_SHIELD_X0 + p[2] for p in P.IO_PORTS]
     x0, x1 = min(xs) - 12.0, max(xs) + 12.0
     z0, z1 = P.BOARD_Z - 4.0, P.BOARD_Z + 30.0
     with BuildPart() as sp:
@@ -27,9 +27,9 @@ def build():
             with Locations(((x0 + x1) / 2, P.BOARD_Z - 2.0)):
                 Rectangle(x1 - x0, 4.0)
             # розриви ніжки: TF-слот знизу плати (і всі порти з bz<0)
-            for name, kind, bx, bz, w, h in P.IO_PORTS:
-                if kind == "rect" and bz < 0:
-                    with Locations((P.IO_BOARD_X0 + bx, P.BOARD_Z - 2.0)):
+            for name, kind, sx, sz, w, h in P.IO_PORTS:
+                if kind == "rect" and sz < 0:
+                    with Locations((P.IO_SHIELD_X0 + sx, P.BOARD_Z - 2.0)):
                         Rectangle(w + 6.0, 4.2, mode=Mode.SUBTRACT)
         extrude(foot.sketch, amount=-3.0)
     return sp.part
