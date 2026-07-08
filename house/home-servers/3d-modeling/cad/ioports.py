@@ -23,9 +23,11 @@ def port_shapes():
                     Circle(w / 2 + c)
         else:
             z = P.IO_SHIELD_Z0 + sz + h / 2
+            # Type-C: R2 (фідбек примірки 08.07), решта R1.2
+            rr = 2.0 if name == "typec" else 1.2
             with BuildSketch() as s:
                 with Locations((x, z)):
                     RectangleRounded(w + 2 * c, h + 2 * c,
-                                     radius=min(1.2, (h + 2 * c) / 2 - 0.1))
+                                     radius=min(rr, (h + 2 * c) / 2 - 0.1))
         out.append((name, s.sketch))
     return out
