@@ -507,6 +507,30 @@ def build():
                 revolution_arc=90)
     total = (total - cb.part).fix()
 
+    # ── трамплін-підпора під задній бортик (08.07: для друку лицем
+    # вниз бортик = консоль 5мм на останніх шарах; «не прямий клин, а
+    # закруглений за правилами трамплінів») — увігнута дуга від дна
+    # (Z2) до верхівки ролла бортика (y0r+2, Z8), кінцевий нахил ~45°;
+    # хвіст втоплений 1мм у тіло бортика, торці 0.4 у смуги стінок
+    Lr, Hr = 14.0, 6.0
+    Rr = (Lr * Lr + Hr * Hr) / (2 * Hr)
+    ys_ = P.REAR_Y - P.BEAD_W + 2.0 - Lr          # старт дуги (96.5)
+    arcp = [(ys_ + d, 2.0 + Rr - math.sqrt(Rr * Rr - d * d))
+            for d in [Lr * k / 10 for k in range(11)]]
+    with BuildPart() as rmp:
+        with BuildSketch(Plane.YZ.offset(P.WALL_L_X + P.BEAD_W - 0.4)) as rs:
+            with BuildLine():
+                Polyline(*arcp,
+                         (P.REAR_Y - P.BEAD_W + 3.0, 8.0),
+                         (P.REAR_Y - P.BEAD_W + 3.0, 2.0),
+                         (ys_, 2.0))
+            make_face()
+        # правий кінець 132.7 — ПЕРЕД чверть-тором кута (дотик тора з
+        # верхом рампи давав 10 нон-маніфолд ребер); консоль бортика
+        # 132.7..134.9 (2.2мм) друкується і так
+        extrude(rs.sketch, amount=132.7 - (P.WALL_L_X + P.BEAD_W - 0.4))
+    total = (total + rmp.part).fix()
+
     return total
 
 
