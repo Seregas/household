@@ -82,7 +82,9 @@ def plan_panel():
     # 08.07: поле = ВСЯ панель (апертури/окантовки більше нема) до BR
     # праворуч (за BR — суцільно під планку HBA, як і було); обідок 2.0
     # навколо кожного порту
-    field = sg.box(-80.0, er, BR, P.PANEL_H - er)
+    # зліва — до внутрішньої грані СМУГИ лівої стінки (-78.1): ромбілі
+    # в зоні -80..-78.1 упирались у торець смуги (фідбек 08.07)
+    field = sg.box(P.WALL_L_X + P.BEAD_W, er, BR, P.PANEL_H - er)
     # обідок 1.5 (08.07: 2.0 «заширокий»; 1.0 замало — торці приймають
     # штекери наосліп, 1.5 = 3-4 периметри друку)
     port_pads = unary_union([p.buffer(1.5) for p in port_cuts])
@@ -133,6 +135,10 @@ def plan_panel():
                 pk = rb.buffer(-ero).buffer(P.RHOMB_R, quad_segs=8) \
                        .intersection(field).difference(screw_pads) \
                        .difference(btn_pad).difference(port_pads)
+                # хвости-щілини на межі з ободом/падами (фідбек 08.07:
+                # 89.5/60.7 біля кнопки) — морф. opening знімає тонше 0.7
+                if rb.intersects(btn_pad) or rb.intersects(port_pads):
+                    pk = pk.buffer(-0.35).buffer(0.35, quad_segs=8)
                 for g in _polys(pk):
                     # ріжемо й часткові шматки по краях (границя області має
                     # проглядатись); фільтр лише проти пилу: <1.5мм², вужчі ~0.7
