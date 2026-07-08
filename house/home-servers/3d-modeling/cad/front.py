@@ -60,7 +60,7 @@ def plan_panel():
     # правий край = дзеркало лівого краю апертури (симетричні відступи);
     # зверху/знизу відступ PANEL_EDGE_RIM
     er = P.PANEL_EDGE_RIM
-    s = P.RHOMB_S                      # сторона ромба = сторона комірки
+    s = P.PANEL_RHOMB_S                # сторона ромба = сторона комірки
     dx = math.sqrt(3) * s              # крок ґратки pointy-top комірок
     dy = 1.5 * s
     ero = P.RHOMB_T / 2 + P.RHOMB_R
@@ -73,7 +73,7 @@ def plan_panel():
         .buffer(-ero).buffer(P.RHOMB_R, quad_segs=8)
     tip_inset = s * math.cos(math.radians(30)) - abs(_probe.bounds[0])
     cx0 = P.IO_X[0] - tip_inset
-    cz0 = P.IO_Z[1] + P.PANEL_RIM + P.RHOMB_S / 2
+    cz0 = P.IO_Z[1] + P.PANEL_RIM + P.PANEL_RHOMB_S / 2
 
     # межі правої зони ПРИВ'ЯЗАНІ до ґратки (2026-07-02: «зрівняти трикутники
     # з ромбиками»): лінія меж — за тим самим рецептом, що лівий край смуги
