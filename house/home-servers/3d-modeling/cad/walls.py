@@ -151,124 +151,6 @@ def _profile_sketch():
     return sk.sketch
 
 
-def _bead_band(x_outer, thickness_dir, prof):
-    """Бортик стінки: замкнена рамка BEAD_W по периметру силуету.
-    Кільце — ТОЧНИМИ дугами (2D offset скетча, не полілінія), гребінь
-    верхньої кромки скруглюється R2 standalone ДО union («псевдо-свіп»:
-    справжній sweep тут самоперетинається — радіуси шляху < глибини профілю)."""
-    with BuildSketch() as ring:
-        add(prof)
-        offset(amount=-P.BEAD_W, mode=Mode.SUBTRACT)
-        # 04.07: діру кільця ззаду ЗАСИПАЄМО від Y78 — внутрішній кут
-        # офсету біля закінчення був клубком дуг (шпильки/провали на
-        # внутрішній грані, фідбек: 132.92/83.39/7.8)
-        # 05.07: засипка ЛИШЕ плінтус-висотою (Z0..7) — повна давала
-        # «прямокутник» на внутрішній грані (фідбек: 132.9/78.76/7.29,
-        # «має бути продовження нижнього бортика»); зона вузла — повна
-        # 08.07: засипки ПАРАМЕТРИЧНО від WALL_REAR_Y (хардкоди 82.5/85.2
-        # лишались на СТАРОМУ місці після подовження REAR_EXT 10→32 —
-        # «старий спуск» 134.9/84.84/17.5 посеред прогону)
-        with Locations((P.WALL_REAR_Y, 3.5)):
-            Rectangle(9.0, 7.0)
-        with Locations((P.WALL_REAR_Y + 2.7, 15)):
-            Rectangle(7.4, 30.0)
-        add(prof, mode=Mode.INTERSECT)
-    with BuildPart() as bp:
-        extrude(Plane.YZ.offset(x_outer) * ring.sketch,
-                amount=thickness_dir * P.BEAD_W)
-    solid = bp.part
-    # гребінь R2: лише ребра ВЕРХНЬОЇ кромки (плече→нахил→R5-кут);
-    # передні (примикання до панелі) і задній рейл/плінтус — не чіпаємо
-    S = _silhouette_shapely()
-    bnd = S.exterior
-    # 2026-07-03: ПОСЛІДОВНІ філети (усі разом одним викликом OCC валить,
-    # хоч кожен сегмент окремо проходить — класика). Ков R1 (R1.5+ не дається
-    # через кривину R2-кова); якщо не пройде — лишається гострим (у ніші).
-    # 04.07: вікно ланцюга РОЗШИРЕНЕ до кінців силуету (yf..клапоть Y87) —
-    # обрізане [-96.2..86.55] лишало клинці-сходинки недоведеного філета
-    # біля панелі (137.49/-96.2/74.74) та на бортику (137.7/87/7.8).
-    # Торці філета поховані (0.5 у панель / у бортик) → вибіг невидимий.
-    # Вертикальні ребра НА торцях (передня/задня грані рамки) НЕ чіпаємо —
-    # їх заокруглення прорізало б жолоб у стику з панеллю/бортиком.
-    yf_lo = P.BODY_FRONT_Y - 0.6
-    y_hi = P.WALL_REAR_Y + P.REAR_COVE_R + P.CREST_R + 0.2
-
-    def in_chain(e, zmin):
-        c = e.center()
-        if not (c.Z > zmin and yf_lo - 0.1 < c.Y < y_hi + 0.1):
-            return False
-        bb = e.bounding_box()
-        # біля торців у ланцюзі лишаються ЛИШЕ поздовжні ребра силуету
-        # (біжать у YZ, size.X≈0) — вертикальні торцеві та поперечні
-        # (вздовж X: кут Y87/Z8, дотичне біля yf) валять філет цілком
-        at_end = c.Y > y_hi - 0.7 or c.Y < yf_lo + 0.7
-        if bb.size.Z > 6.0 and at_end:
-            return False                     # торцеві вертикалі
-        if bb.size.X > 1.0 and (c.Y > y_hi - 0.4 or c.Y < yf_lo + 0.7):
-            return False                     # поперечка лише на торці зла
-        return True
-
-    stages = [
-        # єдиний ланцюг: кромка+рейл (+ков, де R2 на R2-кові — no-op:
-        # кулька сідає в жолоб; справжнє вливання рейла в кутовий револьв
-        # бортика = окремий бленд-вузол «закінчення», TODO)
-        ("кромка+рейл+ков", P.CREST_R, lambda e: in_chain(e, 8.1)),
-        ("кромка+рейл (fallback)", P.CREST_R, lambda e: in_chain(e, 9.9)),
-        # внутрішній контур кільця (п.1 фідбеку 2026-07-03: «скруглення мало
-        # піти далі»); кути засипки діри на Y78 — виключені (валять ланцюг)
-        ("внутрішній контур", P.CREST_R,
-         lambda e: in_chain(e, -1.0)
-         and not (P.WALL_REAR_Y - 5.1 < e.center().Y < P.WALL_REAR_Y - 3.9)
-         and e.center().Y < P.WALL_REAR_Y - 0.5, True),
-        # внутрішні ребра ВУЗЛА (Y>82) свідомо гострі: і ланцюгом, і
-        # ребро-за-ребром OCC лишає вибіги-щілини (116 Т-дефектів);
-        # друк 0.2мм згладить (05.07)
-    ]
-    Sin = S.buffer(-P.BEAD_W)
-    bnd_in = Sin.exterior if Sin.geom_type == 'Polygon' else None
-    done_main = False
-    for name, rad, cond, *inner in stages:
-        if "fallback" in name and done_main:
-            continue
-        ref = bnd_in if inner else bnd
-        if ref is None:
-            continue
-        es = solid.edges().filter_by(
-            lambda e, cond=cond, ref=ref: cond(e)
-            and ref.distance(sg.Point(e.center().Y, e.center().Z)) < 0.3)
-        if not es:
-            continue
-        # сходинки радіуса: краще менший ков, ніж гостре ребро
-        applied = False
-        for r in (rad, rad * 0.6, rad * 0.35):
-            try:
-                solid = solid.fillet(r, list(es))
-                if r != rad:
-                    print(f"  (i) fillet «{name}»: радіус {rad} → {r:.2f}")
-                applied = True
-                break
-            except Exception:
-                continue
-        if not applied:
-            # 05.07: ребро за ребром — одне вироджене ребро не має
-            # лишати ГОЛИМ увесь контур (п.2/п.3 фідбеку)
-            okc = 0
-            for e in es:
-                for r in (rad, rad * 0.5):
-                    try:
-                        solid = solid.fillet(r, [e])
-                        okc += 1
-                        break
-                    except Exception:
-                        continue
-            print(f"  (i) fillet «{name}»: пореброво {okc}/{len(es)}")
-            applied = okc > 0
-        if applied and name.startswith("кромка"):
-            done_main = True
-
-    return solid
-
-
 def rear_ridge():
     """Задній бортик 5×5 (Z3..8), v2 05.07: ПЛАН-контур з R3-кутами
     (2D-філети вершин) + ОДИН ланцюг R2 по всій верхній петлі — кульки
@@ -305,7 +187,7 @@ def rear_ridge():
         # асиметрично: справа ролл до ПЛИТИ (134.9 — смуга там потоншена
         # вікном диска), зліва до грані смуги (-78.1 — смуга повна, різ
         # крізь неї валив fuse лівої стінки)
-        with BuildSketch(Plane.YZ.offset(P.WALL_L_X + P.BEAD_W)) as af:
+        with BuildSketch(Plane.YZ.offset(P.WALL_L_X + P.WALL_T)) as af:
             with BuildLine():
                 Polyline((y0, zt_r - 2.0), (y0, zt_r),
                          (y0 + 2.0, zt_r))
@@ -313,7 +195,7 @@ def rear_ridge():
             make_face()
         extrude(af.sketch,
                 amount=(P.WALL_R_X - P.WALL_T)
-                - (P.WALL_L_X + P.BEAD_W), mode=Mode.SUBTRACT)
+                - (P.WALL_L_X + P.WALL_T), mode=Mode.SUBTRACT)
         rear = rp.edges().filter_by(
             lambda e: abs(e.center().Z - zt_r) < 1e-6
             and e.center().Y > P.REAR_Y - P.BEAD_W + 1.0
@@ -323,41 +205,20 @@ def rear_ridge():
 
 
 def wall_part(x_outer, thickness_dir, keepouts=()):
-    """Стінка = плита (ТОЧНІ дуги: силует − трим під гребенем) + бортик
-    (точні дуги) − rhombille (окремою SUBTRACT-екструзією; слаб на shapely
-    давав T-стики з бортиком біля задньої галтелі → діри в STL).
-    keepouts — shapely-зони без решітки."""
+    """Стінка v2 (09.07, «нафіг бортик»): ПЛИТА повного силуету +
+    rhombille + БУЛЬНОС R1.45 верхнього ланцюга (обома ребрами, смужка
+    0.1 — як на рейках блока). Рамки-бортика більше нема: перед зрізали,
+    ззаду обходили вузлом, у SSD-зоні вирізали — користувач: «нафіг».
+    Плінтус і задній бортик — окремо в build()."""
     prof = _profile_sketch()
-    with BuildSketch() as ring_t:
-        add(prof)
-        offset(amount=-(P.CREST_R + 0.2), mode=Mode.SUBTRACT)
-    with BuildSketch() as trim:
-        add(ring_t.sketch)
-        # трим до ЗА задню межу (+0.5): відступ -0.2 лишав шпильку-залишок
-        # плити 0.2мм біля Y84.5 → щілина з філетованим бортиком (коорд.
-        # користувача 137.53/84.41/26.58); спереду відступ лишається
-        # 04.07: трим ДО фронту (-97.5, за поховану грань) — передня
-        # смужка плити 0.7 на повну висоту стирчала крізь філет бортика
-        # («полиця» Y-96.2, фідбек: 137.49/-96.2/74.74 і дзеркально)
-        # ...і ДО ЗА задній кінець силуету (88): хвіст плити Y85..86.5
-        # на повну висоту накривав гребінь лофта-«закінчення» (04.07)
-        # 05.07: трим від Z7 (було Z10) — повнопрофільна смуга плити
-        # нижче триму давала плато Z10 у вузлі (п.4: 137.67/82.77/10);
-        # і до Y88.7 — хвостик плити за перекатом (п.1)
-        # Z від 5.5: межа на Z7 проходила крізь тіло перекату (6..8) —
-        # Т-контакт по лінії перетину (116 щілин, 05.07)
-        with Locations(((-97.5 + P.WALL_REAR_Y + 6.2) / 2, 42.75)):
-            Rectangle(P.WALL_REAR_Y + 6.2 + 97.5, 74.5,
-                      mode=Mode.INTERSECT)
-    with BuildSketch() as slab_sk:
-        add(prof)
-        add(trim.sketch, mode=Mode.SUBTRACT)
     with BuildPart() as wp:
-        extrude(Plane.YZ.offset(x_outer) * slab_sk.sketch,
+        extrude(Plane.YZ.offset(x_outer) * prof,
                 amount=thickness_dir * P.WALL_T)
-        # rhombille: поле = силует мінус смуга бортика (5) з запасом 1
+        # rhombille: поле = силует − 2.5 краю (бульнос їсть 1.45) −
+        # плінтус-зона знизу (Z<6)
         S = _silhouette_shapely()
-        field = S.buffer(-(P.BEAD_W + 1.0))
+        field = S.buffer(-2.5).difference(
+            sg.box(S.bounds[0] - 1, -1, S.bounds[2] + 1, 6.0))
         for ko in keepouts:
             field = field.difference(ko)
         holes = lattice.rhombille_holes(field, field.bounds[0],
@@ -373,10 +234,48 @@ def wall_part(x_outer, thickness_dir, keepouts=()):
                     make_face()
             extrude(hs.sketch, amount=thickness_dir * (P.WALL_T + 2),
                     mode=Mode.SUBTRACT)
-    wall = wp.part + _bead_band(x_outer, thickness_dir, prof)
-    # (05.07: зріз кута видалено — з REAR_CORNER_R=3 дуга кута
-    # дотична до грані стінки в кінці перекату, різати нічого)
-    return wall
+    solid = wp.part
+    # ── бульнос верхнього краю: ребра на зовнішньому силуеті, вище
+    # плінтуса, БЕЗ вертикалей торців (перед похований у панелі, зад
+    # вливається в бортик) і поперечних X-ребер ──
+    S = _silhouette_shapely()
+    bnd = S.exterior
+
+    def in_top(e):
+        c = e.center()
+        bb = e.bounding_box()
+        if c.Z < 4.0:
+            return False
+        if bb.size.Y < 0.05 and bb.size.Z > 3.0:
+            return False                      # вертикалі торців
+        if bb.size.X > 1.0:
+            return False                      # поперечки на торцях
+        return bnd.distance(sg.Point(c.Y, c.Z)) < 0.3
+
+    es = solid.edges().filter_by(in_top)
+    applied = False
+    for r in (1.45, 1.2, 0.8):
+        try:
+            solid = solid.fillet(r, list(es))
+            if r != 1.45:
+                print(f"  (i) бульнос кромки: радіус → {r}")
+            applied = True
+            break
+        except Exception:
+            continue
+    if not applied:
+        okc = 0
+        for e in es:
+            for r in (1.45, 0.8):
+                try:
+                    solid = solid.fillet(r, [e])
+                    okc += 1
+                    break
+                except Exception:
+                    continue
+        print(f"  (i) бульнос кромки: пореброво {okc}/{len(es)}")
+    return solid
+
 
 def build():
     # keepout-и решітки: виріз кулера (ліва), ніша вентилятора + місток (права)
@@ -395,7 +294,7 @@ def build():
         with BuildSketch(Plane.YZ.offset(P.WALL_L_X - 1)):
             with Locations(((cy0 + cy1) / 2, (cz0 + cz1) / 2)):
                 RectangleRounded(cy1 - cy0, cz1 - cz0, radius=P.COOLER_CUT_R)
-        extrude(amount=P.WALL_T + P.BEAD_W + 2)
+        extrude(amount=P.WALL_T + 2)
     left = (left - cut.part).fix()   # .fix() після вирізу: інакше fuse
     if P.PRINT_RIBS:
         # жертовні перемички вирізу кулера: міст 85мм → 3 прольоти по ~28
@@ -413,36 +312,8 @@ def build():
     # (09.07: проріз під вентилятор ВИДАЛЕНИЙ — див. params FAN_X;
     # гриль/гвинти лишаються в панелі, кріплення — штатні саморізи
     # Noctua в корпус вентилятора, місток більше не потрібен)
-    # вікно під диск A (05.07): внутрішній виступ смуги бортика (до X132.9)
-    # перетинав диск, притиснутий до стінки (зовн. грань диска 134.3) —
-    # виріз до площини плити у прольоті дисків. Зовнішній гребінь кромки,
-    # плінтус (Z<8, під диском) і задній вузол — не чіпаються.
-    # 06.07 (п.5): вікно вниз до плінтуса (Z5.2) і назад до вузла
-    # (Y82.2) — «зайва площина» 132.9/80.7/6.25 під/за старим вікном
-    # 06.07 v2: вікно ДО БОРТИКА (Y86.4) — зупинка на 82.2 лишала
-    # сходинку-фаску в зоні вузла (фідбек «не усунуто»); смуга вздовж
-    # диска і так усюди потоншена до 3 — вузол тепер теж, а звільнені
-    # 2мм підхоплює ролл бортика (анти-філет продовжено до плити)
-    # 06.07 v3: і НАСКРІЗЬ через хвіст смуги (перекат Y86.5..88.5) —
-    # він стирчав поверх ролла бортика «зайвим закругленням» зі щілиною
-    # 0.1 (134.06/86.86/7.74); бортик додається ПІСЛЯ і не ріжеться
-    # дно вікна РІВНО на верхe плінтуса (5.0, було 5.2): інакше ków
-    # (дуга до 5.0) і скруглення кромки за Y78 (дуга до дна вікна)
-    # були зсунуті на 0.2 — «розрив у площинах» точно на 78
-    # 08.07 v2: диски на 110+ від лиця (SSD_Y 15.6..115.6, диск A аж за
-    # стінку) → вікно від переду диска НАСКРІЗЬ повз вузол «закінчення»
-    # (стінка кінчається на 104.5, різ у повітря за нею — без торця)
-    # вікно НАСКРІЗЬ до заду (диск A до 115.6) і ДО ДНА (08.07 друк №2:
-    # «приберемо нижній бортик рами в зоні ссд» — плінтус із дугою були
-    # нависаннями при друці, диску вони не потрібні); паз у бортику
-    # ззаду наскрізний, з'єднання бортика лишається лівіше 132.5
-    with BuildPart() as dcut:
-        with Locations((P.WALL_R_IN - 1.2,
-                        (P.SSD_BASE_Y[0] - 1.0 + P.REAR_Y + 1.0) / 2,
-                        (-1.0 + 70.0) / 2)):
-            Box(2.4, (P.REAR_Y + 1.0) - (P.SSD_BASE_Y[0] - 1.0),
-                70.0 + 1.0)
-    right = (right - dcut.part).fix()
+    # (09.07: вікно під диск A ВИДАЛЕНЕ разом зі смугою бортика — воно
+    # різало її виступ до X132.9; гола плита 134.9 дає диску 0.6 зазору)
     # (08.07 друк №2: дуга кромки вікна ВИДАЛЕНА разом із плінтусом у
     # зоні SSD — вікно тепер до дна, кромки не існує)
     # (06.07: ков уздовж дна вікна ДОДАВАВСЯ і ПРИБРАНИЙ — читався як
@@ -453,31 +324,30 @@ def build():
     # окреме бленд-тіло (свіп-ков уздовж стику) наступною ітерацією.
     total = left + right
 
+    # ── ПЛІНТУС (09.07: рамка-бортик видалена, нижня смуга лишається
+    # користувачем; ПРОДОВЖЕНА до фронтальної площини — скріншот 2);
+    # правий обривається перед SSD-зоною (08.07: «приберемо нижній
+    # бортик рами в зоні ссд») ──
+    for xo, d_, y_end in ((P.WALL_L_X, +1, P.WALL_REAR_Y + 5.0),
+                          (P.WALL_R_X, -1, P.SSD_BASE_Y[0] - 1.0)):
+        with BuildPart() as pl:
+            with Locations((xo + d_ * P.BEAD_W / 2,
+                            (-96.9 + y_end) / 2, 2.5)):
+                Box(P.BEAD_W, y_end + 96.9, 5.0)
+        plp = pl.part
+        try:                                   # верхньо-внутрішнє ребро
+            es_ = plp.edges().filter_by(
+                lambda e: abs(e.center().Z - 5.0) < 0.05
+                and abs(e.center().X - (xo + d_ * P.BEAD_W)) < 0.05)
+            if es_:
+                plp = plp.fillet(1.0, list(es_))
+        except Exception:
+            pass
+        total = (total + plp).fix()
+
     total = total + rear_ridge()
-    # 06.07 v3 (за перерізами користувача: задній бортик YZ@-78.09 і
-    # смуга XZ@86.49 — ІДЕНТИЧНІ 5-профілі bullnose R2+1+R2): бортик
-    # стирчав над внутрішнім плечем смуги гострим кантом. Перехід =
-    # чверть-оберт ролл-різу навколо вертикальної осі У ВНУТРІШНЬОМУ
-    # КУТІ смуга×бортик (-78.1, 86.5): старт різу = ролл бортика,
-    # кінець = крест смуги (дуга центр (-80.1, 6)) — обидва точно.
-    # (Попередні спроби: вісь на (-78.1, 88.5) = «завиток» у тілі
-    # бортика; наскрізний ролл різав здорову форму. Правий кут не
-    # чіпаємо — там вікно вже все вирішило.)
-    # (06.07: дзеркальний оберт ПРАВОРУЧ пробували і ПРИБРАЛИ — «вийшло
-    # рогато»: залишок смуги після вікна БЕЗ внутрішнього креста (гостра
-    # кромка вікна), кінець тора не мав у що перетекти. Оберт працює
-    # лише там, де профілі з обох боків стику повні й однакові.)
-    y0r, ztr = P.REAR_Y - P.BEAD_W, P.RIDGE_TOP_Z
-    x_in = P.WALL_L_X + P.BEAD_W
-    with BuildPart() as cb:
-        with BuildSketch(Plane.YZ.offset(x_in)):
-            with BuildLine():
-                Polyline((y0r, ztr - 2.0), (y0r, ztr), (y0r + 2.0, ztr))
-                RadiusArc((y0r + 2.0, ztr), (y0r, ztr - 2.0), -2.0)
-            make_face()
-        revolve(axis=Axis((x_in, y0r, 0), (0, 0, 1)),
-                revolution_arc=90)
-    total = (total - cb.part).fix()
+    # (09.07: чверть-оберт кута смуга×бортик ВИДАЛЕНИЙ — смуги нема;
+    # бортик тепер стикується просто з плитами)
 
     # ── трамплін-підпора під задній бортик (08.07: для друку лицем
     # вниз бортик = консоль 5мм на останніх шарах; «не прямий клин, а
@@ -492,7 +362,7 @@ def build():
     arcp = [(ys_ + d, 3.0 + Rr - math.sqrt(Rr * Rr - d * d))
             for d in [Lr * k / 10 for k in range(11)]]
     with BuildPart() as rmp:
-        with BuildSketch(Plane.YZ.offset(P.WALL_L_X + P.BEAD_W - 0.4)) as rs:
+        with BuildSketch(Plane.YZ.offset(P.WALL_L_X + P.WALL_T - 0.4)) as rs:
             with BuildLine():
                 # низ 2.0: над сотами (ребра 2мм) трамплін спирається на
                 # них, на рамі/ізогріді (3) втоплюється (фідбек 08.07)
@@ -504,8 +374,10 @@ def build():
         # правий кінець 132.7 — ПЕРЕД чверть-тором кута (дотик тора з
         # верхом рампи давав 10 нон-маніфолд ребер); консоль бортика
         # 132.7..134.9 (2.2мм) друкується і так
-        extrude(rs.sketch, amount=(P.WALL_R_IN - 2.0 + 0.3)
-                - (P.WALL_L_X + P.BEAD_W - 0.4))
+        # правий кінець до плити (0.4 втоплення): чверть-тора кута
+        # більше нема — обмеження знято (09.07)
+        extrude(rs.sketch, amount=(P.WALL_R_IN + 0.4)
+                - (P.WALL_L_X + P.WALL_T - 0.4))
     total = (total + rmp.part).fix()
 
     # 09.07: ПРОРІЗ у задньому бортику+трампліні під SSD-блок — його
@@ -523,24 +395,6 @@ def build():
                 P.SNAP_RAIL_Z[1] - P.SNAP_RAIL_Z[0])
     total = (total - rail.part).fix()
 
-    # ── 09.07: потовщення біля панелі ПРИБРАНЕ (фідбек -78.1/-95.7/59.7
-    # «має співпасти зі стінкою ромбілів на -80.1»): передня вертикальна
-    # смуга рамки бортика зрізана до грані плити, від верху плінтуса до
-    # дотику swoop-кова (вище — кромка, її смуга лишається). Різ по
-    # готовому total — ланцюги філетів гребеня не чіпає ──
-    yF, zF = P.TOP_EDGE_FRONT
-    yR, zR = P.TOP_EDGE_REAR
-    _L = math.hypot(yR - yF, zR - zF)
-    _ny, _nz = -(zR - zF) / _L, (yR - yF) / _L
-    z_sw = zF + (-P.WALL_SWOOP_R - _ny * (P.BODY_FRONT_Y
-           + P.WALL_SWOOP_R - yF)) / _nz          # дотик кова ≈ 61.8
-    for x0c, x1c in ((P.WALL_L_X + P.WALL_T, P.WALL_L_X + P.BEAD_W + 0.2),
-                     (P.WALL_R_X - P.BEAD_W - 0.2, P.WALL_R_X - P.WALL_T)):
-        with BuildPart() as fcut:
-            with Locations(((x0c + x1c) / 2, (-97.5 + -91.0) / 2,
-                            (P.BEAD_W + z_sw) / 2)):
-                Box(x1c - x0c, -91.0 - -97.5, z_sw - P.BEAD_W)
-        total = (total - fcut.part).fix()
 
     return total
 
