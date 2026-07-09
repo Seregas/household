@@ -97,7 +97,8 @@ def plan_panel():
     bx, bz = P.BUTTON_XZ
     btn_pad = sg.Point(bx, bz).buffer(P.BUTTON_D / 2 + P.BUTTON_RIM, 32)
     field = field.difference(btn_pad)
-    # суцільний пад під виделку LSI (щоки кріпляться до цілої панелі)
+    # суцільний пад за картою LSI (край карти + защіпка-виделка;
+    # панель тут цільна — жорсткість зони)
     fz0, fz1 = P.LSI_FORK_Z
     field = field.difference(sg.box(
         P.LSI_X - P.LSI_SLOT_W / 2 - P.LSI_FORK_W - 2.0, fz0 - 2.0,
@@ -326,71 +327,19 @@ def build():
         # ── «брова» жорсткості: готова деталь (радіуси вже в ній) ──
         add(brow_part())
 
-        # ── виделка-напрямна LSI (2026-07-03 v2): суцільний блок до
-        # 3мм від верху панелі (анкериться в брову) → ПАЗ вирізом
-        # наскрізь крізь брову; перші LSI_WEB_T=2мм від панелі залиті —
-        # перемичка, в яку ВПИРАЄТЬСЯ край плати (не діставав фронту 2мм) ──
-        fz0, fz1 = P.LSI_FORK_Z
-        hw = P.LSI_SLOT_W / 2
-        bw = P.LSI_FORK_W
-        with BuildSketch(Plane.XZ.offset(96.4)) as fork:
-            with Locations((P.LSI_X, (fz0 + fz1) / 2)):
-                Rectangle(2 * (hw + bw), fz1 - fz0)
-        extrude(fork.sketch, amount=-P.LSI_FORK_D)
-        # правий зуб (+X) — глибший: довша напрямна з боку заведення
-        with BuildSketch(Plane.XZ.offset(96.4)) as rext:
-            with Locations((P.LSI_X + hw + bw / 2, (fz0 + fz1) / 2)):
-                Rectangle(bw, fz1 - fz0)
-        extrude(rext.sketch, amount=-P.LSI_FORK_D_R)
-        # паз: від перемички назад КРІЗЬ брову (задня грань брови -91.4);
-        # стеля вирізу = fz1 (вище лишаються 3мм цілої брови/панелі)
-        y_web = -96.4 + P.LSI_WEB_T
-        with Locations((P.LSI_X, (y_web + -91.3) / 2,
-                        (fz0 - 0.5 + fz1) / 2)):
-            Box(2 * hw, -91.3 - y_web, fz1 - fz0 + 0.5,
+        # ── LSI (09.07 в2, «замість вбудованої»): виделки на панелі
+        # НЕМА — її роль виконує ЗНІМНА защіпка-виделка (lsi_clip.py),
+        # що опускається ЗГОРИ в колодязь крізь брову ПІСЛЯ установки
+        # плати: паз защіпки захоплює передній край карти LSI (верх на
+        # LSI_BRK_TOP=80.75), барби клацають у кишені стінок колодязя ──
+        with Locations((P.LSI_X, (-96.45 + -92.3) / 2, (78.0 + 89.75) / 2)):
+            Box(2 * P.LSI_WELL_HW, -92.3 - -96.45, 89.75 - 78.0,
                 mode=Mode.SUBTRACT)
-        # дорізка брови ЗА лівою щокою (глибина щоки 4 < глибини брови 5):
-        # хвіст кова нависав над заходом у паз (фідбек 04.07:
-        # 93.18/-91.58/83.5); правий зуб 8мм — там брова вже поглинута
-        y_ch = -96.4 + P.LSI_FORK_D
-        with Locations((P.LSI_X - hw - bw / 2, (y_ch + -91.3) / 2,
-                        (fz0 - 0.5 + fz1) / 2)):
-            Box(bw, -91.3 - y_ch, fz1 - fz0 + 0.5,
-                mode=Mode.SUBTRACT)
-        # лійки З ТИЛУ (карта заходить ззаду в піднятому положенні),
-        # паз 1.7 → ~4.5; по Z рівно до стелі вирізу. Несиметричні:
-        # правий зуб глибший (лійка в кінці 8мм), лівий — лійка на 1мм
-        # далі від тилу, щоб лишався ≥1мм ПОВНОГО хвату плати
-        with BuildSketch(Plane.XY.offset(fz0 - 0.5)) as wedges:
-            for side, rear, leg in (
-                    (-1, -96.4 + P.LSI_FORK_D, 2.0 - P.LSI_GRIP_L),
-                    (+1, -96.4 + P.LSI_FORK_D_R, 2.0)):
-                xi = P.LSI_X + side * hw
-                with BuildLine():
-                    Polyline((xi, rear + 0.1),
-                             (xi, rear - leg),
-                             (xi + side * 1.4, rear + 0.1),
-                             (xi, rear + 0.1))
-                make_face()
-        extrude(wedges.sketch, amount=(fz1 - fz0) + 0.5, mode=Mode.SUBTRACT)
-        # (08.07: друкарські фаски під щоками ВИДАЛЕНІ — друк лицем
-        # вниз, щоки ростуть вертикально і самонесучі)
-
-        # ── колодязь LSI-защіпки (09.07: замір «плата на 8мм нижче
-        # верху») — вертикальний проріз крізь брову НАД платою; защіпка
-        # (lsi_clip.py) падає згори, накриває паз і замикає плату;
-        # кишені в бічних X-стінках — під зубці-пронги ──
-        wy0, wy1 = P.LSI_WELL_Y
-        with Locations((P.LSI_X, (wy0 + wy1) / 2,
-                        (P.LSI_BRK_TOP + 0.15 + P.PANEL_H + 1) / 2)):
-            Box(2 * P.LSI_WELL_HW, wy1 - wy0,
-                P.PANEL_H + 1 - (P.LSI_BRK_TOP + 0.15),
-                mode=Mode.SUBTRACT)
+        # кишені барбів у X-стінках колодязя (повний матеріал брови)
         for sx in (-1, 1):
             with Locations((P.LSI_X + sx * (P.LSI_WELL_HW + 0.25),
-                            (wy0 + 1.3 + wy1) / 2,
-                            P.LSI_BRK_TOP + 1.0)):
-                Box(0.5, wy1 - (wy0 + 1.3), 1.7, mode=Mode.SUBTRACT)
+                            (-95.6 + -93.2) / 2, 86.95)):
+                Box(0.5, -93.2 - -95.6, 2.1, mode=Mode.SUBTRACT)
 
     return fp.part
 
