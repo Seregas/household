@@ -554,6 +554,25 @@ def build():
                 P.SNAP_RAIL_Z[1] - P.SNAP_RAIL_Z[0])
     total = (total - rail.part).fix()
 
+    # ── 09.07: потовщення біля панелі ПРИБРАНЕ (фідбек -78.1/-95.7/59.7
+    # «має співпасти зі стінкою ромбілів на -80.1»): передня вертикальна
+    # смуга рамки бортика зрізана до грані плити, від верху плінтуса до
+    # дотику swoop-кова (вище — кромка, її смуга лишається). Різ по
+    # готовому total — ланцюги філетів гребеня не чіпає ──
+    yF, zF = P.TOP_EDGE_FRONT
+    yR, zR = P.TOP_EDGE_REAR
+    _L = math.hypot(yR - yF, zR - zF)
+    _ny, _nz = -(zR - zF) / _L, (yR - yF) / _L
+    z_sw = zF + (-P.WALL_SWOOP_R - _ny * (P.BODY_FRONT_Y
+           + P.WALL_SWOOP_R - yF)) / _nz          # дотик кова ≈ 61.8
+    for x0c, x1c in ((P.WALL_L_X + P.WALL_T, P.WALL_L_X + P.BEAD_W + 0.2),
+                     (P.WALL_R_X - P.BEAD_W - 0.2, P.WALL_R_X - P.WALL_T)):
+        with BuildPart() as fcut:
+            with Locations(((x0c + x1c) / 2, (-97.5 + -91.0) / 2,
+                            (P.BEAD_W + z_sw) / 2)):
+                Box(x1c - x0c, -91.0 - -97.5, z_sw - P.BEAD_W)
+        total = (total - fcut.part).fix()
+
     return total
 
 
