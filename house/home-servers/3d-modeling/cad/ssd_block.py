@@ -103,7 +103,9 @@ def build():
                 # sgn=+1: переднє ложе (упор перед диском), -1: заднє
                 g = yd - sgn * 0.2            # грань упору (зазор 0.2)
                 yo = g - sgn * P.SSD_FENCE_T  # зовнішня грань упору
-                pe = yd + sgn * 13.2          # кінець палуби (за отвором)
+                # палуба за отвір: перед 9.4+4, зад 14+4 (09.07: задній
+                # отвір був урізаний наполовину)
+                pe = yd + sgn * (13.4 if sgn > 0 else 18.0)
                 with BuildSketch(Plane.YZ.offset(fx0)) as cr:
                     with BuildLine():
                         Polyline((yo, 14.0), (yo, 21.0),
@@ -116,17 +118,13 @@ def build():
                                  (pe, 14.0), (yo, 14.0))
                     make_face()
                 extrude(cr.sketch, amount=fx1 - fx0)
-            # проріз під гачок у задньому упорі B
-            if ch is P.SSD_CH_B:
-                with Locations((P.SNAP_LATCH_XC, y1d + 1.1,
-                                (14.0 + 21.0) / 2)):
-                    Box(P.SNAP_ARM_W + 2.4, P.SSD_FENCE_T + 3.0,
-                        21.0 - 14.0 + 2, mode=Mode.SUBTRACT)
         # права ТОНКА стінка лотка (канал A): своя, 0.8, до низу диска —
         # повітря не тікає з-під диска у зазор до стінки корпусу
-        with Locations((bx1f - 0.4, (P.SSD_Y[0] - 2.0 + P.SSD_Y[1]
-                                     + 2.0) / 2, z0)):
-            Box(0.8, P.SSD_Y[1] + 2.0 - (P.SSD_Y[0] - 2.0), 16.0 - z0,
+        # (до Y104: далі крайова смужка бази = пружна балка зачепа,
+        # стінка зверху зробила б її жорсткою)
+        with Locations((bx1f - 0.4, (P.SSD_Y[0] - 2.0 + P.SNAP_SLIT_Y0)
+                        / 2, z0)):
+            Box(0.8, P.SNAP_SLIT_Y0 - (P.SSD_Y[0] - 2.0), 16.0 - z0,
                 align=AMIN)
 
         # ── постаменти-містки з палубами, рампи, отвори M3 ──
@@ -166,6 +164,20 @@ def build():
                 (P.SSD_DIV_X, P.SSD_RAIL_Y_END),
                 (P.SSD_INNER_X, P.SSD_INNER_Y[0]),
                 (P.SSD_INNER_X, P.SSD_INNER_Y[1]))
+        # верхні кути торців: РОЛЛ-ЗРІЗ R2 (box−циліндр) замість
+        # 3D-філета — верх рейки вже бульнос R0.55 зі смужкою 0.1,
+        # філет по ньому вироджений (пореброво 0/3 на будь-якому R)
+        for ex, ey in ends:
+            sgn = 1 if ey < 50 else -1        # куди «в тіло» рейки
+            with BuildPart(mode=Mode.PRIVATE) as roll:
+                with Locations(((ex[0] + ex[1]) / 2,
+                                ey + sgn * 1.0, top_z - 1.0)):
+                    Box(ex[1] - ex[0] + 0.4, 2.1, 2.2)
+                with Locations(((ex[0] + ex[1]) / 2,
+                                ey + sgn * 2.0, top_z - 2.0)):
+                    Cylinder(2.0, ex[1] - ex[0] + 0.6,
+                             rotation=(0, 90, 0), mode=Mode.SUBTRACT)
+            add(roll.part, mode=Mode.SUBTRACT)
         for ex, ey in ends:
             try:
                 es = blk.edges().filter_by(
@@ -174,37 +186,17 @@ def build():
                     and e.bounding_box().size.Z > 5)
                 if es:
                     fillet(list(es), radius=0.55)
-            except Exception as exn:
-                print("  (!) торець рейки:", exn)
-        for ex, ey in ends:
-            es = blk.edges().filter_by(
-                lambda e: abs(e.center().Y - ey) < 0.6
-                and abs(e.center().Z - top_z) < 0.6
-                and ex[0] - 0.1 < e.center().X < ex[1] + 0.1)
-            if not es:
-                continue
-            # сходинки радіуса (09.07 п.7: R2 падав — кут «губився»)
-            for rr in (2.0, 1.2, 0.7):
-                try:
-                    fillet(list(es), radius=rr)
-                    if rr != 2.0:
-                        print(f"  (i) верхній кут торця: R{rr}")
-                    break
-                except Exception:
-                    continue
-            else:
-                # пореброво (09.07 п.7: зрощений з ложем торець — ланцюг
-                # не береться цілком)
-                okd = 0
+            except Exception:
+                okv = 0
                 for e in es:
-                    for rr in (2.0, 1.0, 0.6):
-                        try:
-                            fillet([e], radius=rr)
-                            okd += 1
-                            break
-                        except Exception:
-                            continue
-                print(f"  (i) верхній кут торця: пореброво {okd}/{len(es)}")
+                    try:
+                        fillet([e], radius=0.55)
+                        okv += 1
+                    except Exception:
+                        pass
+                print(f"  (i) торець рейки Y{ey}: пореброво {okv}/{len(es)}")
+
+
 
         # ── лінзи-пупирки (лише перегородка, обидві грані, 3 станції) ──
         lens_faces = (
@@ -269,39 +261,44 @@ def build():
                             P.SNAP_TAB_Z[0])):
                 Box(P.SNAP_TAB_W, by0f - P.SNAP_TAB_Y[0] + 0.1,
                     P.SNAP_TAB_Z[1] - P.SNAP_TAB_Z[0], align=AMIN)
-        # ── задній пружний ГАЧОК: стовп на хвості бази → балка вперед →
-        # язичок вниз перед хвостом, зуб у паз планки корпусу ──
-        aw2 = P.SNAP_ARM_W / 2
-        ax = P.SNAP_LATCH_XC
-        # проріз у базі під язичок (гнеться назад до 2.2)
-        with Locations((ax, (P.SNAP_ARM_Y0 - 0.4 + 114.6) / 2,
-                        P.SSD_SIT_Z + P.SSD_SKID_H - 0.5)):
-            Box(P.SNAP_ARM_W + 1.0, 114.6 - (P.SNAP_ARM_Y0 - 0.4),
-                P.SSD_BASE_T + 1.5, mode=Mode.SUBTRACT)
-        # стовп (жорсткий) на хвості бази
-        with Locations((ax, (114.8 + 117.2) / 2, z0)):
-            Box(P.SNAP_ARM_W, 117.2 - 114.8, 20.0 - z0, align=AMIN)
-        # балка вперед на Z18.2..20
-        with Locations((ax, (P.SNAP_ARM_Y0 + 117.2) / 2, 18.2)):
-            Box(P.SNAP_ARM_W, 117.2 - P.SNAP_ARM_Y0, 1.8, align=AMIN)
-        # язичок вниз (пружна частина, L~14.7)
-        with Locations((ax, P.SNAP_ARM_Y0 + P.SNAP_ARM_T / 2, 3.5)):
-            Box(P.SNAP_ARM_W, P.SNAP_ARM_T, 18.2 - 3.5 + 0.1, align=AMIN)
-        # зуб уперед: похила нижня грань (заходить по планці), полиця
-        # зверху в паз
-        with BuildSketch(Plane((ax - aw2, 0, 0), x_dir=(0, 1, 0),
-                               z_dir=(1, 0, 0))) as th:
-            with BuildLine():
-                Polyline((P.SNAP_TOOTH_TIP, 4.9),
-                         (P.SNAP_ARM_Y0 + 0.01, 4.9),
-                         (P.SNAP_ARM_Y0 + 0.01, 3.5),
-                         (P.SNAP_TOOTH_TIP, 4.4),
-                         (P.SNAP_TOOTH_TIP, 4.9))
-            make_face()
-        extrude(th.sketch, amount=P.SNAP_ARM_W)
-        # педалька-виступ для пальця (тягнути назад)
-        with Locations((ax, P.SNAP_ARM_Y0 + P.SNAP_ARM_T + 1.0, 4.5)):
-            Box(P.SNAP_ARM_W, 2.0, 1.8)
+        # ── бічні зачепи (09.07 в3): лівий ЖОРСТКИЙ Г-зуб (установка
+        # нахилом), правий — ПРУЖНА балка з крайової смужки бази; зуби
+        # заходять у нішки торців широкого прорізу бортика ──
+        tz0, tz1 = P.SNAP_TOOTH_Z
+        ny0, ny1 = 110.3, 112.7        # нішки 110..113, зазор 0.3 з боків
+        ltip, rtip = 116.4, 136.5      # виступ 2.1/1.9 за торці прорізу
+        # правий: щілина відокремлює крайову смужку бази = балка
+        # (крізь базу І задній поперечний полоз — інакше защемлена)
+        with Locations((bx1f - P.SNAP_BEAM_T - P.SNAP_SLIT_W / 2,
+                        (P.SNAP_SLIT_Y0 + by1f) / 2, 2.5)):
+            Box(P.SNAP_SLIT_W, by1f - P.SNAP_SLIT_Y0,
+                P.SSD_BASE_TOP - 2.5 + 1.0, align=AMIN,
+                mode=Mode.SUBTRACT)
+        # стовпчики зубів (від низу зуба до тіла бази, перекриття 0.5);
+        # правий — ЛИШЕ на балці, щоб не мостити щілину
+        for cx0, cx1 in ((bx0f, bx0f + 2.0),
+                         (bx1f - P.SNAP_BEAM_T + 0.1, bx1f)):
+            with Locations(((cx0 + cx1) / 2, (ny0 + ny1) / 2, tz0)):
+                Box(cx1 - cx0, ny1 - ny0,
+                    P.SSD_SIT_Z + P.SSD_SKID_H + 0.5 - tz0, align=AMIN)
+        # самі зуби — бокси назовні від граней бази
+        for tx0, tx1 in ((ltip, bx0f + 0.5), (bx1f - 0.5, rtip)):
+            with Locations(((tx0 + tx1) / 2, (ny0 + ny1) / 2, tz0)):
+                Box(tx1 - tx0, ny1 - ny0, tz1 - tz0, align=AMIN)
+        # фаски заходу знизу зубів (клин: низ зуба лише трохи ширший за
+        # проріз — при опусканні ковзає по кромці, клац у нішку)
+        for tip, ge, sgn in ((ltip, P.SNAP_GAP_X[0], -1),
+                             (rtip, P.SNAP_GAP_X[1], +1)):
+            with BuildSketch(Plane((0, ny1 + 0.01, 0), x_dir=(1, 0, 0),
+                                   z_dir=(0, -1, 0))) as chz:
+                with BuildLine():
+                    Polyline((tip + sgn * 0.01, tz1 - 0.5),
+                             (tip + sgn * 0.01, tz0 - 0.01),
+                             (ge - sgn * 0.1, tz0 - 0.01),
+                             close=True)
+                make_face()
+            extrude(chz.sketch, amount=ny1 - ny0 + 0.02,
+                    mode=Mode.SUBTRACT)
 
     return blk.part
 

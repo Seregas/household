@@ -181,9 +181,15 @@ def plan_geometry():
     # (виривання гвинта) + обідок 2мм по межі зони (крайові ребра 3мм
     # заввишки не мають бути тонші 2)
     keep_r = P.STANDOFF_COLLAR_D / 2
-    base_keep = unary_union([
-        sg.Point(x, y).buffer(keep_r, 48)
-        for x, y in P.STANDOFF_XY.values()])
+    base_keep = unary_union(
+        [sg.Point(x, y).buffer(keep_r, 48)
+         for x, y in P.STANDOFF_XY.values()]
+        # зони скоб: наскрізні кишені ізогріду лишали ногу скоби над
+        # дірою (фідбек 09.07: 124.38/4.5) — кишені тут не ріжемо
+        + [sg.box(xc - P.SNAP_CLIP_GAP / 2 - P.SNAP_CLIP_WALL - 1.0,
+                  P.SNAP_CLIP_Y[0] - 1.5,
+                  xc + P.SNAP_CLIP_GAP / 2 + P.SNAP_CLIP_WALL + 1.0,
+                  P.SNAP_CLIP_Y[1] + 1.5) for xc in P.SNAP_TAB_XC])
     pocket_region = zone.buffer(-2.0).difference(base_keep)
     pockets = []
     for (hx, hy) in cells:
@@ -332,37 +338,10 @@ def build():
             with Locations((xc, (cy0 + cy1) / 2, P.SNAP_CLIP_TOP[0])):
                 Box(2 * g2 + 2 * wl, cy1 - cy0,
                     P.SNAP_CLIP_TOP[1] - P.SNAP_CLIP_TOP[0], align=AMIN)
-            # фаски-наростання спереду (друк лицем вниз: стінки і дах
-            # з'являються перпендикулярно шарам): стінки — повні клини
-            # у своїх X-зонах, дах — клин ЛИШЕ вище просвіту (перший
-            # варіант перекривав вхід язика — колізія 118.1/1.3/5.0)
-            for x0_, x1_, zlo in ((xc - g2 - wl, xc - g2, P.INFILL_T),
-                                  (xc + g2, xc + g2 + wl, P.INFILL_T),
-                                  (xc - g2 - wl, xc + g2 + wl,
-                                   P.SNAP_CLIP_TOP[0])):
-                with BuildSketch(Plane((x0_, 0, 0), x_dir=(0, 1, 0),
-                                       z_dir=(1, 0, 0))) as cf:
-                    with BuildLine():
-                        Polyline((cy0, P.SNAP_CLIP_TOP[1] + 0.01),
-                                 (cy0 - 2.0, P.SNAP_CLIP_TOP[1] + 0.01),
-                                 (cy0, zlo),
-                                 (cy0, P.SNAP_CLIP_TOP[1] + 0.01))
-                    make_face()
-                extrude(cf.sketch, amount=x1_ - x0_)
-        # планка-зачіп у прорізі бортика + паз під зуб гачка
-        with Locations(((P.SNAP_PLANK_X[0] + P.SNAP_PLANK_X[1]) / 2,
-                        (P.SNAP_PLANK_Y[0] + P.SNAP_PLANK_Y[1]) / 2,
-                        P.SNAP_PLANK_Z[0])):
-            Box(P.SNAP_PLANK_X[1] - P.SNAP_PLANK_X[0],
-                P.SNAP_PLANK_Y[1] - P.SNAP_PLANK_Y[0],
-                P.SNAP_PLANK_Z[1] - P.SNAP_PLANK_Z[0], align=AMIN)
-        # паз у ЗАДНІЙ грані планки (гачок підходить ззаду)
-        with Locations((P.SNAP_LATCH_XC,
-                        P.SNAP_PLANK_Y[1] - P.SNAP_POCKET_D / 2,
-                        (P.SNAP_POCKET_Z[0] + P.SNAP_POCKET_Z[1]) / 2)):
-            Box(P.SNAP_POCKET_W, P.SNAP_POCKET_D,
-                P.SNAP_POCKET_Z[1] - P.SNAP_POCKET_Z[0],
-                mode=Mode.SUBTRACT)
+            # (09.07: фаски-клини скоб видалені — «який сенс у нахилі»:
+            # раптові стіни цієї висоти друкуються нормально)
+        # (09.07 в3: планки-зачепа нема — зуби чіпляються в нішки
+        # торців прорізу бортика, різ у walls.py)
         # ── наскрізні отвори ⌀4 ──
         for (x, y) in P.STANDOFF_XY.values():
             with Locations((x, y, -1)):

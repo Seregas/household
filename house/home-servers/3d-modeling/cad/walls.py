@@ -542,11 +542,23 @@ def build():
     # 09.07: ПРОРІЗ у задньому бортику+трампліні під SSD-блок — його
     # база/полоз/бортики-фіксатори проходять крізь зону заднього краю
     # («слот вийде за раму — це нічого»); з боків бортик лишається
+    # 09.07 в3: проріз РОЗШИРЕНО (117.6..135.5) — універсальний
+    # інтерфейс для аддонів; у ТОРЦЯХ прорізу — нішки під бічні зуби
     with BuildPart() as bgap:
-        with Locations(((118.2 + P.WALL_R_IN) / 2, (96.0 + P.REAR_Y + 1) / 2,
+        with Locations((sum(P.SNAP_GAP_X) / 2, (96.0 + P.REAR_Y + 1) / 2,
                         (2.5 + 21.0) / 2)):
-            Box(P.WALL_R_IN - 118.2, P.REAR_Y + 1 - 96.0, 21.0 - 2.5)
+            Box(P.SNAP_GAP_X[1] - P.SNAP_GAP_X[0],
+                P.REAR_Y + 1 - 96.0, 21.0 - 2.5)
     total = (total - bgap.part).fix()
+    with BuildPart() as nch:
+        for xe, sgn in ((P.SNAP_GAP_X[0], -1), (P.SNAP_GAP_X[1], +1)):
+            with Locations((xe + sgn * P.SNAP_NICHE_D / 2,
+                            sum(P.SNAP_NICHE_Y) / 2,
+                            sum(P.SNAP_NICHE_Z) / 2)):
+                Box(P.SNAP_NICHE_D + 0.2,
+                    P.SNAP_NICHE_Y[1] - P.SNAP_NICHE_Y[0],
+                    P.SNAP_NICHE_Z[1] - P.SNAP_NICHE_Z[0])
+    total = (total - nch.part).fix()
 
     return total
 
