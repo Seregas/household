@@ -542,23 +542,17 @@ def build():
     # 09.07: ПРОРІЗ у задньому бортику+трампліні під SSD-блок — його
     # база/полоз/бортики-фіксатори проходять крізь зону заднього краю
     # («слот вийде за раму — це нічого»); з боків бортик лишається
-    # 09.07 в3: проріз РОЗШИРЕНО (117.6..135.5) — універсальний
-    # інтерфейс для аддонів; у ТОРЦЯХ прорізу — нішки під бічні зуби
-    with BuildPart() as bgap:
-        with Locations((sum(P.SNAP_GAP_X) / 2, (96.0 + P.REAR_Y + 1) / 2,
-                        (2.5 + 21.0) / 2)):
-            Box(P.SNAP_GAP_X[1] - P.SNAP_GAP_X[0],
-                P.REAR_Y + 1 - 96.0, 21.0 - 2.5)
-    total = (total - bgap.part).fix()
-    with BuildPart() as nch:
-        for xe, sgn in ((P.SNAP_GAP_X[0], -1), (P.SNAP_GAP_X[1], +1)):
-            with Locations((xe + sgn * P.SNAP_NICHE_D / 2,
-                            sum(P.SNAP_NICHE_Y) / 2,
-                            sum(P.SNAP_NICHE_Z) / 2)):
-                Box(P.SNAP_NICHE_D + 0.2,
-                    P.SNAP_NICHE_Y[1] - P.SNAP_NICHE_Y[0],
-                    P.SNAP_NICHE_Z[1] - P.SNAP_NICHE_Z[0])
-    total = (total - nch.part).fix()
+    # 09.07 в4: бортик СУЦІЛЬНИЙ (проріз v3 скасовано користувачем);
+    # у задній грані — ПАЗ уздовж бортика: універсальна рейка, за яку
+    # гачки блока/аддонів чіпляються зубами (відгинаючись назад)
+    with BuildPart() as rail:
+        with Locations((sum(P.SNAP_RAIL_X) / 2,
+                        P.REAR_Y - P.SNAP_RAIL_D / 2 + 0.05,
+                        sum(P.SNAP_RAIL_Z) / 2)):
+            Box(P.SNAP_RAIL_X[1] - P.SNAP_RAIL_X[0],
+                P.SNAP_RAIL_D + 0.1,
+                P.SNAP_RAIL_Z[1] - P.SNAP_RAIL_Z[0])
+    total = (total - rail.part).fix()
 
     return total
 

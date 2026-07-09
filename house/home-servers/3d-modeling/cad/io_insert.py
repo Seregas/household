@@ -77,7 +77,55 @@ def _plans():
                                                ztop_f + 0.1)))
 
     ports = unary_union(ioports.port_polys())
-    cut_all = ports.union(unary_union(slits))
+
+    # ── rhombille (09.07 фідбек: «зникли ромбілі — ми ж для вентиляції») —
+    # та сама ґратка/фаза, що була на панелі (s7, вершини кишень на лівій
+    # межі апертури) → патерн вставки продовжує патерн панелі навколо ──
+    s = P.PANEL_RHOMB_S
+    dxl = math.sqrt(3) * s
+    dyl = 1.5 * s
+    ero = P.RHOMB_T / 2 + P.RHOMB_R
+    _probe = sg.Polygon([(0, 0), (-s * math.cos(math.radians(30)), -s / 2),
+                         (0, -s), (s * math.cos(math.radians(30)), -s / 2)])         .buffer(-ero).buffer(P.RHOMB_R, quad_segs=8)
+    tip_inset = s * math.cos(math.radians(30)) - abs(_probe.bounds[0])
+    cx0 = P.IO_X[0] - tip_inset
+    cz0 = P.IO_Z[1] + P.PANEL_RIM + s / 2
+    port_pads = ports.buffer(1.5)          # обідок 1.5 = 3-4 периметри
+    fing_pads = unary_union(
+        [g.buffer(1.5) for g in slits]
+        + [sg.box(xd - P.INS_LIP_TAB_W / 2 - 1.5, ztop_n - 3.0,
+                  xd + P.INS_LIP_TAB_W / 2 + 1.5, ztop_f + 1)
+           for xd in P.INS_DIMPLE_XC])
+    field = aper.buffer(-1.7, quad_segs=8)         .difference(port_pads).difference(fing_pads)
+    fb = field.bounds
+    rhomb = []
+    for row in range(-int((cz0 - fb[1]) / dyl) - 2, 3):
+        for col in range(-3, int((fb[2] - cx0) / dxl) + 3):
+            hx = cx0 + col * dxl + (row % 2) * dxl / 2
+            hz = cz0 + row * dyl
+            V = [(hx + s * math.cos(math.radians(a)),
+                  hz + s * math.sin(math.radians(a)))
+                 for a in range(90, 450, 60)]
+            for k in (0, 2, 4):
+                rb = sg.Polygon([(hx, hz), V[k], V[k + 1], V[(k + 2) % 6]])
+                if not rb.intersects(field):
+                    continue
+                pk = rb.buffer(-ero).buffer(P.RHOMB_R, quad_segs=8)                        .intersection(field)
+                if rb.intersects(port_pads) or rb.intersects(fing_pads):
+                    pk = pk.buffer(-0.35).buffer(0.35, quad_segs=8)
+                for g in (pk.geoms if pk.geom_type != 'Polygon' else [pk]):
+                    if g.geom_type != 'Polygon' or g.area < 1.5                             or g.buffer(-0.45).is_empty:
+                        continue
+                    rhomb.append(g)
+    # «волосини»: стінки тонші 0.8 біля кіл портів → у сусідній виріз
+    mat = field.buffer(3.0).difference(unary_union(rhomb) if rhomb
+                                       else sg.Polygon())
+    hair = mat.difference(mat.buffer(-0.4).buffer(0.4, quad_segs=8))
+    for c in (hair.geoms if hair.geom_type != 'Polygon' else [hair]):
+        if c.geom_type == 'Polygon' and c.area < 5.0                 and c.intersects(field):
+            rhomb.append(c)
+
+    cut_all = ports.union(unary_union(slits + rhomb))
     nose_pl = nose.difference(cut_all)
     flange_pl = flange.difference(cut_all).difference(
         unary_union(lip_gaps))
