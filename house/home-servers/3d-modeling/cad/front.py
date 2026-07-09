@@ -39,10 +39,12 @@ def plan_panel():
                        P.PANEL_CORNER_R)
 
     holes = []
-    # ── I/O: ВЛАСНІ вирізи портів замість апертури під щиток (08.07,
-    # рішення користувача; таблиця IO_PORTS відкалібрована смужкою) ──
-    port_cuts = ioports.port_polys()
-    holes.extend(port_cuts)
+    # ── I/O: АПЕРТУРА 1:1 під щиток (09.07: порти переїхали у змінну
+    # друковану ВСТАВКУ io_insert.py — універсальність під інші плати;
+    # сталевий щиток теж сяде) ──
+    aper = _rounded(sg.box(P.IO_X[0], P.IO_Z[0], P.IO_X[1], P.IO_Z[1]),
+                    P.INS_APER_R)
+    holes.append(aper)
     # ── слоти вушок (вертикальні стадіони) ──
     for xc in P.EAR_SLOT_XC:
         for z0, z1 in P.EAR_SLOT_Z:
@@ -88,9 +90,9 @@ def plan_panel():
     # сліпі трикутники); брова: zb=PANEL_H-BROW_H, ków вниз на BROW_D
     field = sg.box(P.WALL_L_X + P.BEAD_W, er, BR,
                    P.PANEL_H - P.BROW_H - P.BROW_D - 0.5)
-    # обідок 1.5 (08.07: 2.0 «заширокий»; 1.0 замало — торці приймають
-    # штекери наосліп, 1.5 = 3-4 периметри друку)
-    port_pads = unary_union([p.buffer(1.5) for p in port_cuts])
+    # обідок апертури: фальц ззаду сягає +1.6, наскрізним кишеням
+    # треба ще ≥1.5 суцільного — разом 3.2
+    port_pads = aper.buffer(P.INS_REBATE_W + 1.6)
     field = field.difference(port_pads)
     bx, bz = P.BUTTON_XZ
     btn_pad = sg.Point(bx, bz).buffer(P.BUTTON_D / 2 + P.BUTTON_RIM, 32)
@@ -279,6 +281,30 @@ def build():
                         Polyline(*coords, close=True)
                     make_face(mode=Mode.SUBTRACT)
         extrude(amount=P.FRONT_PANEL_T)
+
+        # ── фальц вставки (09.07): кишеня з ТИЛУ навколо апертури
+        # (полиця +1.6, глибина 1.5 — лице лишає 1.5); внизу локально
+        # глибші кишені під жорсткі язички вставки ──
+        aperp = _rounded(sg.box(P.IO_X[0], P.IO_Z[0], P.IO_X[1], P.IO_Z[1]),
+                         P.INS_APER_R)
+        reb = aperp.buffer(P.INS_REBATE_W, quad_segs=8)
+        for xc in P.INS_TAB_XC:
+            reb = reb.union(sg.box(xc - P.INS_TAB_W / 2 - 0.3,
+                                   P.IO_Z[0] - 1.4 - P.INS_TAB_H - 0.4,
+                                   xc + P.INS_TAB_W / 2 + 0.3,
+                                   P.IO_Z[0]))
+        with BuildSketch(Plane.XZ.offset(96.3)) as rb:
+            with BuildLine():
+                Polyline(*list(reb.exterior.simplify(0.03).coords)[:-1],
+                         close=True)
+            make_face()
+        extrude(rb.sketch, amount=P.INS_REBATE_D + 0.1, mode=Mode.SUBTRACT)
+        # кишені бампів у СТЕЛІ фальца (пружні пальці вставки клацають
+        # знизу вгору; стінка-поріг до тилу 0.4 — тримає від виштовхування
+        # назад при встромлянні кабелів, доки порти не підіпруть)
+        for xc in P.INS_DIMPLE_XC:
+            with Locations((xc, -97.65, 51.85)):
+                Box(P.INS_LIP_TAB_W + 1.0, 0.8, 0.9, mode=Mode.SUBTRACT)
 
         # кнопка ⌀12 — нативний циліндр (справжнє коло у STEP)
         bx, bz = P.BUTTON_XZ
