@@ -58,6 +58,14 @@ def build():
                     RectangleRounded(sk1 - sk0, P.SSD_SKID_Y1 - by0f,
                                      radius=1.0)
             extrude(sks.sketch, amount=P.SSD_SKID_H + 0.1)
+        # задній поперечний полоз — опора хвоста бази при друці
+        with BuildSketch(Plane.XY.offset(P.SSD_SIT_Z)) as skr:
+            with Locations(((bx0f + bx1f) / 2,
+                            sum(P.SSD_SKID_REAR) / 2)):
+                RectangleRounded(bx1f - bx0f,
+                                 P.SSD_SKID_REAR[1] - P.SSD_SKID_REAR[0],
+                                 radius=1.0)
+        extrude(skr.sketch, amount=P.SSD_SKID_H + 0.1)
 
         # ── рейки: перегородка + внутрішня (профіль із лійкою, бульнос) ──
         rails = ((P.SSD_DIV_X[0], P.SSD_DIV_X[1],
@@ -82,33 +90,17 @@ def build():
                         lambda v: v.Y > ht - 0.01), radius=0.55)
                 extrude(tz.sketch, amount=ry1 - ry0)
 
-        # ── упори-панелі (перед дисками) з hex-вікнами ──
-        sy0, sy1 = P.SSD_STOP_Y
-        pa0 = P.SSD_DIV_X[1] - 0.5          # анкер 0.5 у перегородку
-        pb1 = P.SSD_DIV_X[1] - 0.5 + 0.0    # (панель B — праворуч у перег.)
-        for bx0, bx1, hx, ysh, free_l in (
-                (pa0, bx1f, cxa, 0.0, False),
-                (P.SSD_INNER_X[0], P.SSD_DIV_X[0] + 0.5, cxb,
-                 P.SSD_B_SHIFT, True)):
-            with BuildSketch(Plane.XZ.offset(-(sy0 + ysh))) as bp_:
-                with Locations(((bx0 + bx1) / 2, z0 + P.SSD_LIFT + 4.0)):
-                    Rectangle(bx1 - bx0, 8.0)
-                if free_l:
-                    fillet(bp_.vertices().filter_by(
-                        lambda v: v.X < bx0 + 0.01 and v.Y > z0 + 11.0),
-                        radius=2.0)
-                with Locations((hx, z0 + P.SSD_LIFT + 4.0)):
-                    RegularPolygon(4.8 / math.sqrt(3), 6,
-                                   major_radius=True, rotation=90,
-                                   mode=Mode.SUBTRACT)
-            extrude(bp_.sketch, amount=-(sy1 - sy0))
-        # (08.07: підпорка упору B видалена — рейка продовжена вперед
-        # до упору і зрощена з ним, тримає його лівий край)
-        # ніжка під ПРАВИЙ край упору A (друк №2: правий край був
-        # консоллю від перегородки — зламався; стінка корпусу окремо,
-        # тож опора з власної бази)
-        with Locations((bx1f - 1.0, (sy0 + sy1) / 2, z0)):
-            Box(2.0, sy1 - sy0, P.SSD_LIFT + 0.1, align=AMIN)
+        # ── бортики-фіксатори торців (09.07, замість упорів: диски
+        # прикручені знизу, бортики — механічні обмежувачі ±0.2) ──
+        for ch, dy0, dy1 in ((P.SSD_CH_A, P.SSD_Y[0], P.SSD_Y[1]),
+                             (P.SSD_CH_B, P.SSD_Y[0] + P.SSD_B_SHIFT,
+                              P.SSD_Y[1] + P.SSD_B_SHIFT)):
+            fx0, fx1 = ch[0] - 0.3, min(ch[1] + 0.3, bx1f)
+            for yc in (dy0 - 0.2 - P.SSD_FENCE_T / 2,
+                       dy1 + 0.2 + P.SSD_FENCE_T / 2):
+                with Locations(((fx0 + fx1) / 2, yc, z0)):
+                    Box(fx1 - fx0, P.SSD_FENCE_T,
+                        P.SSD_FENCE_TOP - z0, align=AMIN)
 
         # ── постаменти-містки з палубами, рампи, отвори M3 ──
         for cx, ch, y_rear in ((cxa, P.SSD_CH_A, P.SSD_Y[1]),
@@ -197,9 +189,7 @@ def build():
                    + [y + P.SSD_B_SHIFT for y in P.SSD_SLEEPER_Y]]
         deck_ko = [sg.box(yb - 4.6, P.SSD_SIT_Z, yb + 4.6, z0 + 9.0)
                    for yb in deck_ys]
-        stop_ko = [sg.box(sy0 - 1.5, z0 + 5.0, sy1 + 1.0, z0 + 15.0),
-                   sg.box(sy0 + P.SSD_B_SHIFT - 1.5, z0 + 5.0,
-                          sy1 + P.SSD_B_SHIFT + 1.0, z0 + 15.0)]
+        stop_ko = []   # (09.07: упорів-панелей більше нема)
         rail_fields = (
             ((P.SSD_DIV_X[0], P.SSD_DIV_X[1]),
              sg.box(y0s + P.SSD_B_SHIFT - 2.0, z0 + 2.0,

@@ -539,6 +539,15 @@ def build():
                 - (P.WALL_L_X + P.BEAD_W - 0.4))
     total = (total + rmp.part).fix()
 
+    # 09.07: ПРОРІЗ у задньому бортику+трампліні під SSD-блок — його
+    # база/полоз/бортики-фіксатори проходять крізь зону заднього краю
+    # («слот вийде за раму — це нічого»); з боків бортик лишається
+    with BuildPart() as bgap:
+        with Locations(((118.2 + P.WALL_R_IN) / 2, (96.0 + P.REAR_Y + 1) / 2,
+                        (2.5 + 21.0) / 2)):
+            Box(P.WALL_R_IN - 118.2, P.REAR_Y + 1 - 96.0, 21.0 - 2.5)
+    total = (total - bgap.part).fix()
+
     return total
 
 
