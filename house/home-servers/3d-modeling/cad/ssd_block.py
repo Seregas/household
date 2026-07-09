@@ -90,62 +90,52 @@ def build():
                         lambda v: v.Y > ht - 0.01), radius=0.55)
                 extrude(tz.sketch, amount=ry1 - ry0)
 
-        # ── бортики-«посадкові місця» (09.07 v2): поперечина З РІВНЯ
-        # диска (Z14..21, канал під диском відкритий — фідбек «перекрив
-        # потік»), кінцеві стійки 2.0 до бази, завід-фаска зсередини ──
-        fz0, fz1 = P.SSD_FENCE_Z0, P.SSD_FENCE_TOP
-        for ch, dy0, dy1 in ((P.SSD_CH_A, P.SSD_Y[0], P.SSD_Y[1]),
+        # ── ЛОЖА для SSD (09.07 v3): упор+постамент = єдина поверхня:
+        # згори упор іде по торцю диска, ków R2.5 завертає ПІД диск і
+        # переходить у палубу (верх 16 = низ диска) з отвором M3; ложа
+        # втоплені торцями в суцільні стінки каналів (ніжок нема);
+        # переднє/заднє ложе розділені — вентиляція під диском ──
+        for ch, y0d, y1d in ((P.SSD_CH_A, P.SSD_Y[0], P.SSD_Y[1]),
                              (P.SSD_CH_B, P.SSD_Y[0] + P.SSD_B_SHIFT,
                               P.SSD_Y[1] + P.SSD_B_SHIFT)):
             fx0, fx1 = ch[0] - 0.3, min(ch[1] + 0.3, bx1f)
-            for side, yc in ((-1, dy0 - 0.2 - P.SSD_FENCE_T / 2),
-                             (+1, dy1 + 0.2 + P.SSD_FENCE_T / 2)):
-                with Locations(((fx0 + fx1) / 2, yc, fz0)):
-                    Box(fx1 - fx0, P.SSD_FENCE_T, fz1 - fz0, align=AMIN)
-                # задній фіксатор B: центральний проріз під гачок
-                if side > 0 and ch is P.SSD_CH_B:
-                    with Locations((P.SNAP_LATCH_XC, yc,
-                                    (fz0 + fz1) / 2)):
-                        Box(P.SNAP_ARM_W + 2.4, P.SSD_FENCE_T + 2,
-                            fz1 - fz0 + 2, mode=Mode.SUBTRACT)
-                # кінцеві стійки до бази
-                for sx_ in (fx0 + 1.0, fx1 - 1.0):
-                    with Locations((sx_, yc, z0)):
-                        Box(2.0, P.SSD_FENCE_T, fz0 - z0, align=AMIN)
-                # завід: фаска 1.5x45 зверху ЗСЕРЕДИНИ (диск сам сідає)
-                with BuildSketch(Plane((fx0, yc - side * P.SSD_FENCE_T / 2,
-                                        0), x_dir=(0, 1, 0),
-                                       z_dir=(1, 0, 0))) as chf:
+            for sgn, yd in ((+1, y0d), (-1, y1d)):
+                # sgn=+1: переднє ложе (упор перед диском), -1: заднє
+                g = yd - sgn * 0.2            # грань упору (зазор 0.2)
+                yo = g - sgn * P.SSD_FENCE_T  # зовнішня грань упору
+                pe = yd + sgn * 13.2          # кінець палуби (за отвором)
+                with BuildSketch(Plane.YZ.offset(fx0)) as cr:
                     with BuildLine():
-                        Polyline((side * 1.5, fz1 + 0.1),
-                                 (-side * 0.1, fz1 + 0.1),
-                                 (-side * 0.1, fz1 - 1.5),
-                                 (side * 1.5, fz1 + 0.1))
+                        Polyline((yo, 14.0), (yo, 21.0),
+                                 (g - sgn * 1.5, 21.0),
+                                 (g, 19.5),          # завід-фаска
+                                 (g, 18.5))
+                        RadiusArc((g, 18.5), (g + sgn * 2.5, 16.0),
+                                  -sgn * 2.5)        # ków під диск
+                        Polyline((g + sgn * 2.5, 16.0), (pe, 16.0),
+                                 (pe, 14.0), (yo, 14.0))
                     make_face()
-                extrude(chf.sketch, amount=fx1 - fx0, mode=Mode.SUBTRACT)
+                extrude(cr.sketch, amount=fx1 - fx0)
+            # проріз під гачок у задньому упорі B
+            if ch is P.SSD_CH_B:
+                with Locations((P.SNAP_LATCH_XC, y1d + 1.1,
+                                (14.0 + 21.0) / 2)):
+                    Box(P.SNAP_ARM_W + 2.4, P.SSD_FENCE_T + 3.0,
+                        21.0 - 14.0 + 2, mode=Mode.SUBTRACT)
+        # права ТОНКА стінка лотка (канал A): своя, 0.8, до низу диска —
+        # повітря не тікає з-під диска у зазор до стінки корпусу
+        with Locations((bx1f - 0.4, (P.SSD_Y[0] - 2.0 + P.SSD_Y[1]
+                                     + 2.0) / 2, z0)):
+            Box(0.8, P.SSD_Y[1] + 2.0 - (P.SSD_Y[0] - 2.0), 16.0 - z0,
+                align=AMIN)
 
         # ── постаменти-містки з палубами, рампи, отвори M3 ──
         for cx, ch, y_rear in ((cxa, P.SSD_CH_A, P.SSD_Y[1]),
                                (cxb, P.SSD_CH_B, P.SSD_Y[1] + P.SSD_B_SHIFT)):
             for off in (14.0, 90.6):
                 yb = y_rear - off
-                legged = (cx == cxb and yb < P.SSD_INNER_Y[0])
-                bx0 = bx0f if legged else ch[0] - 0.3
-                bx1 = bx1f if cx == cxa else ch[1] + 0.3
-                with Locations(((bx0 + bx1) / 2, yb, z0 + P.SSD_LIFT / 2)):
-                    Box(bx1 - bx0, P.SSD_SLEEPER_W, P.SSD_LIFT)
-                if legged:
-                    ww = (ch[1] + 0.3 - bx0) - 4.0
-                    wc = (bx0 + ch[1] + 0.3) / 2
-                elif cx == cxa:
-                    # канал A: права НІЖКА 1.0 (09.07 v2) на краю бази
-                    ww = (bx1f - 1.0) - ch[0]
-                    wc = (ch[0] + bx1f - 1.0) / 2
-                else:
-                    ww, wc = ch[1] - ch[0], cx
-                with Locations((wc, yb, z0 + (P.SSD_LIFT - 2.0) / 2)):
-                    Box(ww, P.SSD_SLEEPER_W + 2, P.SSD_LIFT - 2.0,
-                        mode=Mode.SUBTRACT)
+                # (09.07 v3: бокси-палуби видалені — палуби тепер
+                # частина ЛОЖ вище; рампи й отвори лишаються)
                 # увігнутий трамплін перед отвором (2мм, пологий)
                 if cx == cxa or yb > P.SSD_INNER_Y[0]:
                     rx0 = ch[0] - 0.1
@@ -187,15 +177,34 @@ def build():
             except Exception as exn:
                 print("  (!) торець рейки:", exn)
         for ex, ey in ends:
-            try:
-                es = blk.edges().filter_by(
-                    lambda e: abs(e.center().Y - ey) < 0.6
-                    and abs(e.center().Z - top_z) < 0.6
-                    and ex[0] - 0.1 < e.center().X < ex[1] + 0.1)
-                if es:
-                    fillet(list(es), radius=2.0)
-            except Exception as exn:
-                print("  (!) верхній кут торця:", exn)
+            es = blk.edges().filter_by(
+                lambda e: abs(e.center().Y - ey) < 0.6
+                and abs(e.center().Z - top_z) < 0.6
+                and ex[0] - 0.1 < e.center().X < ex[1] + 0.1)
+            if not es:
+                continue
+            # сходинки радіуса (09.07 п.7: R2 падав — кут «губився»)
+            for rr in (2.0, 1.2, 0.7):
+                try:
+                    fillet(list(es), radius=rr)
+                    if rr != 2.0:
+                        print(f"  (i) верхній кут торця: R{rr}")
+                    break
+                except Exception:
+                    continue
+            else:
+                # пореброво (09.07 п.7: зрощений з ложем торець — ланцюг
+                # не береться цілком)
+                okd = 0
+                for e in es:
+                    for rr in (2.0, 1.0, 0.6):
+                        try:
+                            fillet([e], radius=rr)
+                            okd += 1
+                            break
+                        except Exception:
+                            continue
+                print(f"  (i) верхній кут торця: пореброво {okd}/{len(es)}")
 
         # ── лінзи-пупирки (лише перегородка, обидві грані, 3 станції) ──
         lens_faces = (
@@ -229,7 +238,7 @@ def build():
                     P.SSD_RAIL_Y_END - 2.0, z0 + 22.0),
              lens_ko + deck_ko + stop_ko),
             ((P.SSD_INNER_X[0], P.SSD_INNER_X[1]),
-             sg.box(P.SSD_INNER_Y[0] + 2.0, z0 + 2.0,
+             sg.box(P.SSD_INNER_Y[0] + 2.0, 17.0,
                     P.SSD_INNER_Y[1] - 2.0, z0 + 22.0),
              [sg.box(yb - 4.6, P.SSD_SIT_Z, yb + 4.6, z0 + 9.0)
               for yb in deck_ys] + stop_ko))
