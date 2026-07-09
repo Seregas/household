@@ -384,11 +384,10 @@ def build():
     # (RAM_WIN_RIM=2.0; фідбек 08.07 — 3.0 виглядав товстим на s8)
     ko_cooler = sg.box(P.COOLER_CUT_Y[0], P.COOLER_CUT_Z[0],
                        P.COOLER_CUT_Y[1], P.COOLER_CUT_Z[1]).buffer(2.0)
-    ko_fan = sg.box(P.BODY_FRONT_Y - 1, P.FAN_CZ - P.FAN_W / 2 - 0.3,
-                    P.BODY_FRONT_Y + P.FAN_D + P.FAN_NOTCH_CLR + P.FAN_BRIDGE_T,
-                    P.FAN_CZ + P.FAN_W / 2 + 0.3).buffer(3.0)
+    # (09.07: ko_fan ПРИБРАНО — ніші вентилятора в стінці більше нема,
+    # вентилятор цілком усередині; ромбілі течуть по всій правій стінці)
     left = wall_part(P.WALL_L_X, +1, keepouts=(ko_cooler,))
-    right = wall_part(P.WALL_R_X, -1, keepouts=(ko_fan,))
+    right = wall_part(P.WALL_R_X, -1, keepouts=())
 
     cy0, cy1 = P.COOLER_CUT_Y
     cz0, cz1 = P.COOLER_CUT_Z
@@ -411,20 +410,9 @@ def build():
         left = left + ribs.part
                                      # мовчки викидає «крихкий» солід
 
-    # проріз під тіло 40-мм вентилятора у ПРАВІЙ стінці: рамка проходить
-    # крізь плиту (права грань вентилятора врівень із зовнішньою площиною);
-    # бортик/рубчик природно огинають проріз зверху і знизу
-    clr = P.FAN_NOTCH_CLR
-    with BuildPart() as fcut:
-        with BuildSketch(Plane.YZ.offset(P.WALL_R_X - P.WALL_T - P.BEAD_W - 1)):
-            with Locations((P.BODY_FRONT_Y + P.FAN_D / 2 - 1, P.FAN_CZ)):
-                # ПРЯМИЙ прямокутник: бічний профіль вентилятора (10×40)
-                # гострокутний — R2 у ніші не давав рамці сісти (фідбек);
-                # передня межа на 2 вперед: інакше від рубчика лишалась
-                # мембрана 0.25, що глушила гриль (04.07: 134.56/-96.7)
-                Rectangle(P.FAN_D + 2 * clr + 2, P.FAN_W + 2 * clr)
-        extrude(amount=P.WALL_T + P.BEAD_W + 3)
-    right = (right - fcut.part).fix()
+    # (09.07: проріз під вентилятор ВИДАЛЕНИЙ — див. params FAN_X;
+    # гриль/гвинти лишаються в панелі, кріплення — штатні саморізи
+    # Noctua в корпус вентилятора, місток більше не потрібен)
     # вікно під диск A (05.07): внутрішній виступ смуги бортика (до X132.9)
     # перетинав диск, притиснутий до стінки (зовн. грань диска 134.3) —
     # виріз до площини плити у прольоті дисків. Зовнішній гребінь кромки,
@@ -460,25 +448,6 @@ def build():
     # (06.07: ков уздовж дна вікна ДОДАВАВСЯ і ПРИБРАНИЙ — читався як
     # «незрозуміле підвищення рами» + давав клин біля заднього кута)
 
-    # МІСТОК за вентилятором (2026-07-03): відновлює неперервність стінки
-    # через проріз і приймає праву пару гвинтів (M3×16 наскрізь:
-    # панель 3 + вентилятор 10 + зазор 0.3 + місток 3)
-    zb0, zb1 = P.FAN_CZ - P.FAN_W / 2 - clr, P.FAN_CZ + P.FAN_W / 2 + clr
-    by0 = P.BODY_FRONT_Y + P.FAN_D + clr
-    with BuildPart() as br:
-        with Locations(((P.WALL_R_X + P.FAN_CX + P.FAN_SCREW_CC / 2 - 2) / 2,
-                        by0 + P.FAN_BRIDGE_T / 2, (zb0 + zb1) / 2)):
-            Box(P.WALL_R_X - (P.FAN_CX + P.FAN_SCREW_CC / 2 - 2),
-                P.FAN_BRIDGE_T, zb1 - zb0)
-        for sz in (-1, 1):
-            with Locations(Location((P.FAN_CX + P.FAN_SCREW_CC / 2,
-                                     by0 + P.FAN_BRIDGE_T + 1,
-                                     P.FAN_CZ + sz * P.FAN_SCREW_CC / 2),
-                                    (90, 0, 0))):
-                Cylinder(P.FAN_SCREW_TAP_D / 2, P.FAN_BRIDGE_T + 2,
-                         align=(Align.CENTER, Align.CENTER, Align.MIN),
-                         mode=Mode.SUBTRACT)
-    right = right + br.part
     # ⚠️ впадину у стику рейл↔бортик НЕ робити post-fuse філетом —
     # SEGFAULT (клапоть копланарний бортику, патерн «брови»). TODO:
     # окреме бленд-тіло (свіп-ков уздовж стику) наступною ітерацією.
