@@ -376,6 +376,22 @@ def build():
         # (08.07: друкарські фаски під щоками ВИДАЛЕНІ — друк лицем
         # вниз, щоки ростуть вертикально і самонесучі)
 
+        # ── колодязь LSI-защіпки (09.07: замір «плата на 8мм нижче
+        # верху») — вертикальний проріз крізь брову НАД платою; защіпка
+        # (lsi_clip.py) падає згори, накриває паз і замикає плату;
+        # кишені в бічних X-стінках — під зубці-пронги ──
+        wy0, wy1 = P.LSI_WELL_Y
+        with Locations((P.LSI_X, (wy0 + wy1) / 2,
+                        (P.LSI_BRK_TOP + 0.15 + P.PANEL_H + 1) / 2)):
+            Box(2 * P.LSI_WELL_HW, wy1 - wy0,
+                P.PANEL_H + 1 - (P.LSI_BRK_TOP + 0.15),
+                mode=Mode.SUBTRACT)
+        for sx in (-1, 1):
+            with Locations((P.LSI_X + sx * (P.LSI_WELL_HW + 0.25),
+                            (wy0 + 1.3 + wy1) / 2,
+                            P.LSI_BRK_TOP + 1.0)):
+                Box(0.5, wy1 - (wy0 + 1.3), 1.7, mode=Mode.SUBTRACT)
+
     return fp.part
 
 
