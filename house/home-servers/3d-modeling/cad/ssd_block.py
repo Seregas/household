@@ -90,17 +90,33 @@ def build():
                         lambda v: v.Y > ht - 0.01), radius=0.55)
                 extrude(tz.sketch, amount=ry1 - ry0)
 
-        # ── бортики-фіксатори торців (09.07, замість упорів: диски
-        # прикручені знизу, бортики — механічні обмежувачі ±0.2) ──
+        # ── бортики-«посадкові місця» (09.07 v2): поперечина З РІВНЯ
+        # диска (Z14..21, канал під диском відкритий — фідбек «перекрив
+        # потік»), кінцеві стійки 2.0 до бази, завід-фаска зсередини ──
+        fz0, fz1 = P.SSD_FENCE_Z0, P.SSD_FENCE_TOP
         for ch, dy0, dy1 in ((P.SSD_CH_A, P.SSD_Y[0], P.SSD_Y[1]),
                              (P.SSD_CH_B, P.SSD_Y[0] + P.SSD_B_SHIFT,
                               P.SSD_Y[1] + P.SSD_B_SHIFT)):
             fx0, fx1 = ch[0] - 0.3, min(ch[1] + 0.3, bx1f)
-            for yc in (dy0 - 0.2 - P.SSD_FENCE_T / 2,
-                       dy1 + 0.2 + P.SSD_FENCE_T / 2):
-                with Locations(((fx0 + fx1) / 2, yc, z0)):
-                    Box(fx1 - fx0, P.SSD_FENCE_T,
-                        P.SSD_FENCE_TOP - z0, align=AMIN)
+            for side, yc in ((-1, dy0 - 0.2 - P.SSD_FENCE_T / 2),
+                             (+1, dy1 + 0.2 + P.SSD_FENCE_T / 2)):
+                with Locations(((fx0 + fx1) / 2, yc, fz0)):
+                    Box(fx1 - fx0, P.SSD_FENCE_T, fz1 - fz0, align=AMIN)
+                # кінцеві стійки до бази
+                for sx_ in (fx0 + 1.0, fx1 - 1.0):
+                    with Locations((sx_, yc, z0)):
+                        Box(2.0, P.SSD_FENCE_T, fz0 - z0, align=AMIN)
+                # завід: фаска 1.5x45 зверху ЗСЕРЕДИНИ (диск сам сідає)
+                with BuildSketch(Plane((fx0, yc - side * P.SSD_FENCE_T / 2,
+                                        0), x_dir=(0, 1, 0),
+                                       z_dir=(1, 0, 0))) as chf:
+                    with BuildLine():
+                        Polyline((side * 1.5, fz1 + 0.1),
+                                 (-side * 0.1, fz1 + 0.1),
+                                 (-side * 0.1, fz1 - 1.5),
+                                 (side * 1.5, fz1 + 0.1))
+                    make_face()
+                extrude(chf.sketch, amount=fx1 - fx0, mode=Mode.SUBTRACT)
 
         # ── постаменти-містки з палубами, рампи, отвори M3 ──
         for cx, ch, y_rear in ((cxa, P.SSD_CH_A, P.SSD_Y[1]),
@@ -116,11 +132,9 @@ def build():
                     ww = (ch[1] + 0.3 - bx0) - 4.0
                     wc = (bx0 + ch[1] + 0.3) / 2
                 elif cx == cxa:
-                    # канал A: права НІЖКА 2.0 на краю бази (09.07 —
-                    # блок окремий, плити стінки як анкера більше нема;
-                    # палуба була консоллю від перегородки)
-                    ww = (bx1f - 2.0) - ch[0]
-                    wc = (ch[0] + bx1f - 2.0) / 2
+                    # канал A: права НІЖКА 1.0 (09.07 v2) на краю бази
+                    ww = (bx1f - 1.0) - ch[0]
+                    wc = (ch[0] + bx1f - 1.0) / 2
                 else:
                     ww, wc = ch[1] - ch[0], cx
                 with Locations((wc, yb, z0 + (P.SSD_LIFT - 2.0) / 2)):
@@ -195,7 +209,14 @@ def build():
                    + [y + P.SSD_B_SHIFT for y in P.SSD_SLEEPER_Y]]
         deck_ko = [sg.box(yb - 4.6, P.SSD_SIT_Z, yb + 4.6, z0 + 9.0)
                    for yb in deck_ys]
-        stop_ko = []   # (09.07: упорів-панелей більше нема)
+        # keepout-и БОРТИКІВ-посадок (09.07: їхні стійки стоять упритул
+        # до рейок — наскрізні ромбілі прошивали їх)
+        fence_ys = (P.SSD_Y[0] - 0.2 - P.SSD_FENCE_T / 2,
+                    P.SSD_Y[0] + P.SSD_B_SHIFT - 0.2 - P.SSD_FENCE_T / 2,
+                    P.SSD_Y[1] + 0.2 + P.SSD_FENCE_T / 2,
+                    P.SSD_Y[1] + P.SSD_B_SHIFT + 0.2 + P.SSD_FENCE_T / 2)
+        stop_ko = [sg.box(yc - 2.0, P.SSD_SIT_Z, yc + 2.0,
+                          P.SSD_FENCE_TOP + 1.0) for yc in fence_ys]
         rail_fields = (
             ((P.SSD_DIV_X[0], P.SSD_DIV_X[1]),
              sg.box(y0s + P.SSD_B_SHIFT - 2.0, z0 + 2.0,
@@ -205,7 +226,7 @@ def build():
              sg.box(P.SSD_INNER_Y[0] + 2.0, z0 + 2.0,
                     P.SSD_INNER_Y[1] - 2.0, z0 + 22.0),
              [sg.box(yb - 4.6, P.SSD_SIT_Z, yb + 4.6, z0 + 9.0)
-              for yb in deck_ys]))
+              for yb in deck_ys] + stop_ko))
         for (rx0_, rx1_), rfield, kos in rail_fields:
             for ko in kos:
                 rfield = rfield.difference(ko)
