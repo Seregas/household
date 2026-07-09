@@ -100,22 +100,13 @@ def build():
                               P.SSD_Y[1] + P.SSD_B_SHIFT)):
             fx0, fx1 = ch[0] - 0.3, min(ch[1] + 0.3, bx1f)
             for sgn, yd in ((+1, y0d), (-1, y1d)):
-                # sgn=+1: переднє ложе (упор перед диском), -1: заднє.
-                # 09.07 в4: задні УПОРИ видалені — вони були на y110..117,
-                # за межами бази (тепер до 107.8, бортик суцільний); диск
-                # тримають 2 гвинти, задній звис 3-8мм жорсткий; заднє
-                # ложе = палуба навколо отвору до кінця рейок
-                if sgn < 0:
-                    pe = yd - 18.0                     # перед палуби
-                    pr = P.SSD_RAIL_Y_END - 0.1        # зад = кінець рейок
-                    with BuildSketch(Plane.YZ.offset(fx0)) as cr:
-                        with Locations(((pe + pr) / 2, 15.0)):
-                            Rectangle(pr - pe, 2.0)
-                    extrude(cr.sketch, amount=fx1 - fx0)
-                    continue
+                # sgn=+1: переднє ложе (упор перед диском), -1: заднє
+                # (в4.2: задні ложа ПОВЕРНУТО 1:1 — прибирати без
+                # погодження було помилкою; опору дають похилі
+                # продовження стінок каналів нижче)
                 g = yd - sgn * 0.2            # грань упору (зазор 0.2)
                 yo = g - sgn * P.SSD_FENCE_T  # зовнішня грань упору
-                pe = yd + sgn * 13.4          # палуба за отвір (9.4+4)
+                pe = yd + 13.4 if sgn > 0 else yd - 18.0
                 with BuildSketch(Plane.YZ.offset(fx0)) as cr:
                     with BuildLine():
                         Polyline((yo, 14.0), (yo, 21.0),
@@ -128,6 +119,28 @@ def build():
                                  (pe, 14.0), (yo, 14.0))
                     make_face()
                 extrude(cr.sketch, amount=fx1 - fx0)
+        # ── опори задніх лож (09.07 в4.2): база тепер закінчується на
+        # 107.8 (суцільний бортик) — палуби/упори за нею тримають
+        # ПРОДОВЖЕННЯ стінок каналів: низ 45° від (кінець рейок, 8.2)
+        # до 13.5, далі рівно; над бортиком (верх 8) не торкаючись ──
+        yA = P.SSD_Y[1] + 0.2 + P.SSD_FENCE_T + 0.1          # 117.5
+        yB = P.SSD_Y[1] + P.SSD_B_SHIFT + 0.2 + P.SSD_FENCE_T + 0.1
+        for (wx0, wx1), yend in ((P.SSD_INNER_X, yB),
+                                 (P.SSD_DIV_X, yA),
+                                 ((bx1f - 0.8, bx1f), yA)):
+            ys = P.SSD_RAIL_Y_END - 0.1
+            kink = ys + 13.5 - 8.2          # де 45°-схил сягає 13.5
+            pts_ = [(ys, 8.2), (ys, 16.0), (yend, 16.0)]
+            if kink < yend - 0.05:
+                pts_ += [(yend, 13.5), (kink, 13.5)]
+            else:                            # схил упирається в кінець
+                pts_ += [(yend, 8.2 + (yend - ys))]
+            with BuildSketch(Plane.YZ.offset(wx0)) as wex:
+                with BuildLine():
+                    Polyline(*pts_, close=True)
+                make_face()
+            extrude(wex.sketch, amount=wx1 - wx0)
+
         # права ТОНКА стінка лотка (канал A): своя, 0.8, до низу диска —
         # повітря не тікає з-під диска у зазор до стінки корпусу
         with Locations((bx1f - 0.4, (P.SSD_Y[0] - 2.0 + P.SSD_RAIL_Y_END)
