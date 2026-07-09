@@ -264,11 +264,19 @@ def build():
         # SSD прибраний з корпусу разом із дугою кромки)
 
         # ── SNAPFIT (09.07, tool-less): передні ЯЗИКИ на полозах ──
+        # язики-КЛИНИ (09.07 в4.1): верх наростає до кореня 4.8→5.65
+        # (дах скоби 5.4) — кінчик заходить вільно, наприкінці ходу дах
+        # наїжджає на клин і ДОТИСКАЄ блок до дна (натяг ~0.1 під дахом)
         for xc in P.SNAP_TAB_XC:
-            with Locations((xc, (P.SNAP_TAB_Y[0] + by0f) / 2,
-                            P.SNAP_TAB_Z[0])):
-                Box(P.SNAP_TAB_W, by0f - P.SNAP_TAB_Y[0] + 0.1,
-                    P.SNAP_TAB_Z[1] - P.SNAP_TAB_Z[0], align=AMIN)
+            with BuildSketch(Plane.YZ.offset(xc - P.SNAP_TAB_W / 2)) as tw:
+                with BuildLine():
+                    Polyline((P.SNAP_TAB_Y[0], P.SNAP_TAB_Z[0]),
+                             (P.SNAP_TAB_Y[0], 4.8),
+                             (by0f + 0.1, 5.65),
+                             (by0f + 0.1, P.SNAP_TAB_Z[0]),
+                             close=True)
+                make_face()
+            extrude(tw.sketch, amount=P.SNAP_TAB_W)
         # ── гачки v4 (09.07 вечір): два плеча з хвоста бази йдуть НАД
         # бортиком (Z8) назад; від кожного — горизонтальна пружна БАЛКА
         # вздовж X (схрещені, рознесені по Y/Z), на вільному кінці стопа
@@ -299,16 +307,16 @@ def build():
             # цього шару (z≤9.6) — балки схрещені, не перетинаються
             if lz1 > 12.0:                     # лівий гачок (верхній шар)
                 with Locations(((fx0_ + fx1_) / 2, (115.6 + by1_) / 2,
-                                3.4)):
-                    Box(fx1_ - fx0_, by1_ - 115.6, lz1 - 3.4, align=AMIN)
+                                3.0)):
+                    Box(fx1_ - fx0_, by1_ - 115.6, lz1 - 3.0, align=AMIN)
                 with Locations(((fx0_ + fx1_) / 2,
-                                (rear_f - 0.05 + by1_) / 2, 3.4)):
-                    Box(fx1_ - fx0_, by1_ - (rear_f - 0.05), 9.6 - 3.4,
+                                (rear_f - 0.05 + by1_) / 2, 3.0)):
+                    Box(fx1_ - fx0_, by1_ - (rear_f - 0.05), 9.6 - 3.0,
                         align=AMIN)
             else:                              # правий гачок — суцільна
                 with Locations(((fx0_ + fx1_) / 2,
-                                (rear_f - 0.05 + by1_) / 2, 3.4)):
-                    Box(fx1_ - fx0_, by1_ - (rear_f - 0.05), lz1 - 3.4,
+                                (rear_f - 0.05 + by1_) / 2, 3.0)):
+                    Box(fx1_ - fx0_, by1_ - (rear_f - 0.05), lz1 - 3.0,
                         align=AMIN)
             with Locations(((fx0_ + fx1_) / 2,
                             (rear_f - 0.05 - P.SNAP_TOOTH_D
@@ -323,8 +331,8 @@ def build():
                                    z_dir=(1, 0, 0)).offset(fx0_ - 0.1))                     as cam:
                 with BuildLine():
                     Polyline((tip - 0.01, P.SNAP_RAIL_Z[1] - 0.6),
-                             (tip - 0.01, 3.3),
-                             (rear_f + 0.01, 3.3),
+                             (tip - 0.01, 2.9),
+                             (rear_f + 0.01, 2.9),
                              (rear_f + 0.01, P.SNAP_RAIL_Z[0] + 0.1),
                              close=True)
                 make_face()
