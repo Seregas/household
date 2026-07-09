@@ -302,6 +302,68 @@ def build():
             with Locations(Location((xc, 1.85, 4.75), (0, 90, 0))):
                 Cylinder(0.8, P.SNAP_TAB_W)
 
+        # ── гачки v4 (09.07 вечір): два плеча з хвоста бази йдуть НАД
+        # бортиком (Z8) назад; від кожного — горизонтальна пружна БАЛКА
+        # вздовж X (схрещені, рознесені по Y/Z), на вільному кінці стопа
+        # з зубом ВПЕРЕД у паз задньої грані бортика. Натяг тисне блок
+        # назад = затискає язики у скобах. Згин балок — у площині шарів ──
+        rear_f = P.REAR_Y                       # задня грань бортика 113.5
+        for (ax0, ax1), (fx0_, fx1_), (lz0, lz1), by0_ in (
+                (P.SNAP_ARM_L_X, P.SNAP_FOOT_R_X, P.SNAP_LAY_HI, 115.8),
+                (P.SNAP_ARM_R_X, P.SNAP_FOOT_L_X, P.SNAP_LAY_LO, 114.4)):
+            by1_ = by0_ + 1.1
+            # колона на базі + рука назад над бортиком до балки
+            cy0, cy1 = P.SNAP_HOOK_COL_Y
+            with Locations(((ax0 + ax1) / 2, (cy0 + cy1) / 2,
+                            P.SSD_BASE_TOP - 0.2)):
+                Box(ax1 - ax0, cy1 - cy0, lz1 - (P.SSD_BASE_TOP - 0.2),
+                    align=AMIN)
+            with Locations(((ax0 + ax1) / 2, (cy0 + by1_) / 2, lz0)):
+                Box(ax1 - ax0, by1_ - cy0, lz1 - lz0, align=AMIN)
+            # балка вздовж X (пружна, товщина Y = SNAP_BEAM_T)
+            bx0_, bx1_ = min(ax0, fx0_), max(ax1, fx1_)
+            with Locations(((bx0_ + bx1_) / 2,
+                            by0_ + P.SNAP_BEAM_T / 2, lz0)):
+                Box(bx1_ - bx0_, P.SNAP_BEAM_T, lz1 - lz0, align=AMIN)
+            # стопа: від балки вниз за задньою гранню, перед 113.45
+            # (0.05 натягу на грань — прижим); зуб уперед у паз.
+            # Ліва стопа Г-подібна: її лезо йде вниз ПОЗАДУ шару правої
+            # балки (y≥115.6), а вперед до грані виступає лише НИЖЧЕ
+            # цього шару (z≤9.6) — балки схрещені, не перетинаються
+            if lz1 > 12.0:                     # лівий гачок (верхній шар)
+                with Locations(((fx0_ + fx1_) / 2, (115.6 + by1_) / 2,
+                                3.0)):
+                    Box(fx1_ - fx0_, by1_ - 115.6, lz1 - 3.0, align=AMIN)
+                with Locations(((fx0_ + fx1_) / 2,
+                                (rear_f - 0.05 + by1_) / 2, 3.0)):
+                    Box(fx1_ - fx0_, by1_ - (rear_f - 0.05), 9.6 - 3.0,
+                        align=AMIN)
+            else:                              # правий гачок — суцільна
+                with Locations(((fx0_ + fx1_) / 2,
+                                (rear_f - 0.05 + by1_) / 2, 3.0)):
+                    Box(fx1_ - fx0_, by1_ - (rear_f - 0.05), lz1 - 3.0,
+                        align=AMIN)
+            with Locations(((fx0_ + fx1_) / 2,
+                            (rear_f - 0.05 - P.SNAP_TOOTH_D
+                             + rear_f - 0.05) / 2,
+                            P.SNAP_RAIL_Z[0] + 0.2)):
+                Box(fx1_ - fx0_, P.SNAP_TOOTH_D,
+                    P.SNAP_RAIL_Z[1] - 0.2 - (P.SNAP_RAIL_Z[0] + 0.2),
+                    align=AMIN)
+            # кулачок: клин знизу зуба (з'їзд по скругленню гребеня)
+            tip = rear_f - 0.05 - P.SNAP_TOOTH_D
+            with BuildSketch(Plane((0, 0, 0), x_dir=(0, 1, 0),
+                                   z_dir=(1, 0, 0)).offset(fx0_ - 0.1))                     as cam:
+                with BuildLine():
+                    Polyline((tip - 0.01, P.SNAP_RAIL_Z[1] - 0.6),
+                             (tip - 0.01, 2.9),
+                             (rear_f + 0.01, 2.9),
+                             (rear_f + 0.01, P.SNAP_RAIL_Z[0] + 0.1),
+                             close=True)
+                make_face()
+            extrude(cam.sketch, amount=(fx1_ - fx0_) + 0.2,
+                    mode=Mode.SUBTRACT)
+
     return blk.part
 
 

@@ -22,8 +22,8 @@ AMIN = (Align.CENTER, Align.CENTER, Align.MIN)
 
 
 def build():
-    hw = 0.85                       # півширина паза (= LSI_SLOT_W/2)
-    bw = 2.2                        # щока (= LSI_FORK_W)
+    hw = P.LSI_SLOT_W / 2           # півширина паза 0.85
+    bw = P.LSI_FORK_W               # щока 2.2
     xw = hw + bw                    # півширина тіла 3.05
     y0, y1 = -96.35, -92.45         # тіло по Y (0.05 від тилу панелі)
     zb = P.LSI_FORK_Z[0] - 0.5      # низ щік 73.25
@@ -34,8 +34,8 @@ def build():
             Box(2 * xw, y1 - y0, zt - zb, align=AMIN)
         # паз карти: від перемички-упора (−94.3) назад НАСКРІЗЬ, до
         # стелі z_card; вище — суцільний центр (замок карти)
-        with Locations((P.LSI_X, (-94.3 + y1 + 1) / 2, zb - 0.5)):
-            Box(2 * hw, y1 + 1 - -94.3, z_card - (zb - 0.5),
+        with Locations((P.LSI_X, ((P.FRONT_Y + P.FRONT_PANEL_T + P.LSI_WEB_T + 0.1) + y1 + 1) / 2, zb - 0.5)):
+            Box(2 * hw, y1 + 1 - (P.FRONT_Y + P.FRONT_PANEL_T + P.LSI_WEB_T + 0.1), z_card - (zb - 0.5),
                 align=AMIN, mode=Mode.SUBTRACT)
         # лійка-розтруб знизу паза (самоцентрування на краю карти)
         for sx in (-1, 1):
@@ -46,12 +46,12 @@ def build():
                              (P.LSI_X + sx * hw, zb - 0.01),
                              close=True)
                 make_face()
-            extrude(fl.sketch, amount=-(y1 + 1 - -94.3),
+            extrude(fl.sketch, amount=-(y1 + 1 - (P.FRONT_Y + P.FRONT_PANEL_T + P.LSI_WEB_T + 0.1)),
                     mode=Mode.SUBTRACT)
         # фаска знизу перемички-упора (з'їзд на край карти по Y)
         with BuildSketch(Plane.YZ.offset(P.LSI_X - hw)) as wch:
             with BuildLine():
-                Polyline((-94.3, zb + 1.2), (-94.3, zb - 0.01),
+                Polyline(((P.FRONT_Y + P.FRONT_PANEL_T + P.LSI_WEB_T + 0.1), zb + 1.2), ((P.FRONT_Y + P.FRONT_PANEL_T + P.LSI_WEB_T + 0.1), zb - 0.01),
                          (-95.5, zb - 0.01), close=True)
             make_face()
         extrude(wch.sketch, amount=2 * hw, mode=Mode.SUBTRACT)
