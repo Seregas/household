@@ -60,12 +60,15 @@ def plan_geometry():
     # соти біля S4 збіглась із гранню іншого оператора (6 відкритих ребер
     # на X96.65) — зсув фази розбиває точні збіги, функційно нейтральний
     cx0, cy0 = (x0 + x1) / 2 + 0.11, (y0 + y1) / 2
-    # кріплення SSD-блока (3xM3) — «як постаменти» (08.07): пад ⌀20 у
-    # сотах + корона-ізогрід зверху з суцільним комірцем ⌀12
+    # 09.07: кріплення блока тепер SNAPFIT — пади-«постаменти» гвинтів
+    # видалені; суцільні зони лише під скобами язиків (прямокутні)
     pads = unary_union(
         [sg.Point(x, y).buffer(P.STANDOFF_PAD_D / 2, 48)
          for x, y in P.STANDOFF_XY.values()]
-        + [sg.Point(mx, my).buffer(10.0, 48) for mx, my in P.SSD_MOUNT_XY])
+        + [sg.box(xc - P.SNAP_CLIP_GAP / 2 - P.SNAP_CLIP_WALL - 2.0,
+                  P.SNAP_CLIP_Y[0] - 2.0,
+                  xc + P.SNAP_CLIP_GAP / 2 + P.SNAP_CLIP_WALL + 2.0,
+                  P.SNAP_CLIP_Y[1] + 2.0) for xc in P.SNAP_TAB_XC])
     windows = unary_union([_rounded(sg.box(k['x'][0], k['y'][0], k['x'][1], k['y'][1]),
                                     P.RAM_WIN_R)
                            for k in P.RAM_KEEPOUT.values()])
@@ -178,10 +181,9 @@ def plan_geometry():
     # (виривання гвинта) + обідок 2мм по межі зони (крайові ребра 3мм
     # заввишки не мають бути тонші 2)
     keep_r = P.STANDOFF_COLLAR_D / 2
-    base_keep = unary_union(
-        [sg.Point(x, y).buffer(keep_r, 48)
-         for x, y in P.STANDOFF_XY.values()]
-        + [sg.Point(mx, my).buffer(6.0, 32) for mx, my in P.SSD_MOUNT_XY])
+    base_keep = unary_union([
+        sg.Point(x, y).buffer(keep_r, 48)
+        for x, y in P.STANDOFF_XY.values()])
     pocket_region = zone.buffer(-2.0).difference(base_keep)
     pockets = []
     for (hx, hy) in cells:
@@ -315,13 +317,52 @@ def build():
                     RectangleRounded(wx1 - wx0, wy1 - wy0, radius=P.RAM_WIN_R)
             extrude(amount=1 + P.FRAME_T + 1, mode=Mode.SUBTRACT)
 
-        # ── SSD-блок (ssd_block.py): полози на рівні РАМИ (Z3) — ззаду
-        # на рамі, спереду на коронах-«постаментах» кріплень (ізогрід
-        # Z3 з комірцем ⌀12); отвори — самонарізи M3 ──
-        for (mx, my) in P.SSD_MOUNT_XY:
-            with Locations((mx, my, -1)):
-                Cylinder(P.SSD_MOUNT_TAP_D / 2, P.FRAME_T + 2,
-                         align=AMIN, mode=Mode.SUBTRACT)
+        # ── SNAPFIT-кріплення блока (09.07, tool-less) ──
+        # скоби-містки під передні язики: стінки + дах з 45°-фаскою
+        # спереду (друк лицем вниз — профіль наростає з дна поступово)
+        for xc in P.SNAP_TAB_XC:
+            g2 = P.SNAP_CLIP_GAP / 2
+            wl = P.SNAP_CLIP_WALL
+            cy0, cy1 = P.SNAP_CLIP_Y
+            for sx in (-1, 1):
+                with Locations((xc + sx * (g2 + wl / 2),
+                                (cy0 + cy1) / 2, P.INFILL_T)):
+                    Box(wl, cy1 - cy0, P.SNAP_CLIP_TOP[1] - P.INFILL_T,
+                        align=AMIN)
+            with Locations((xc, (cy0 + cy1) / 2, P.SNAP_CLIP_TOP[0])):
+                Box(2 * g2 + 2 * wl, cy1 - cy0,
+                    P.SNAP_CLIP_TOP[1] - P.SNAP_CLIP_TOP[0], align=AMIN)
+            # фаски-наростання спереду (друк лицем вниз: стінки і дах
+            # з'являються перпендикулярно шарам): стінки — повні клини
+            # у своїх X-зонах, дах — клин ЛИШЕ вище просвіту (перший
+            # варіант перекривав вхід язика — колізія 118.1/1.3/5.0)
+            for x0_, x1_, zlo in ((xc - g2 - wl, xc - g2, P.INFILL_T),
+                                  (xc + g2, xc + g2 + wl, P.INFILL_T),
+                                  (xc - g2 - wl, xc + g2 + wl,
+                                   P.SNAP_CLIP_TOP[0])):
+                with BuildSketch(Plane((x0_, 0, 0), x_dir=(0, 1, 0),
+                                       z_dir=(1, 0, 0))) as cf:
+                    with BuildLine():
+                        Polyline((cy0, P.SNAP_CLIP_TOP[1] + 0.01),
+                                 (cy0 - 2.0, P.SNAP_CLIP_TOP[1] + 0.01),
+                                 (cy0, zlo),
+                                 (cy0, P.SNAP_CLIP_TOP[1] + 0.01))
+                    make_face()
+                extrude(cf.sketch, amount=x1_ - x0_)
+        # планка-зачіп у прорізі бортика + паз під зуб гачка
+        with Locations(((P.SNAP_PLANK_X[0] + P.SNAP_PLANK_X[1]) / 2,
+                        (P.SNAP_PLANK_Y[0] + P.SNAP_PLANK_Y[1]) / 2,
+                        P.SNAP_PLANK_Z[0])):
+            Box(P.SNAP_PLANK_X[1] - P.SNAP_PLANK_X[0],
+                P.SNAP_PLANK_Y[1] - P.SNAP_PLANK_Y[0],
+                P.SNAP_PLANK_Z[1] - P.SNAP_PLANK_Z[0], align=AMIN)
+        # паз у ЗАДНІЙ грані планки (гачок підходить ззаду)
+        with Locations((P.SNAP_LATCH_XC,
+                        P.SNAP_PLANK_Y[1] - P.SNAP_POCKET_D / 2,
+                        (P.SNAP_POCKET_Z[0] + P.SNAP_POCKET_Z[1]) / 2)):
+            Box(P.SNAP_POCKET_W, P.SNAP_POCKET_D,
+                P.SNAP_POCKET_Z[1] - P.SNAP_POCKET_Z[0],
+                mode=Mode.SUBTRACT)
         # ── наскрізні отвори ⌀4 ──
         for (x, y) in P.STANDOFF_XY.values():
             with Locations((x, y, -1)):

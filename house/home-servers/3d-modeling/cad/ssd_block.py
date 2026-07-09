@@ -102,6 +102,12 @@ def build():
                              (+1, dy1 + 0.2 + P.SSD_FENCE_T / 2)):
                 with Locations(((fx0 + fx1) / 2, yc, fz0)):
                     Box(fx1 - fx0, P.SSD_FENCE_T, fz1 - fz0, align=AMIN)
+                # задній фіксатор B: центральний проріз під гачок
+                if side > 0 and ch is P.SSD_CH_B:
+                    with Locations((P.SNAP_LATCH_XC, yc,
+                                    (fz0 + fz1) / 2)):
+                        Box(P.SNAP_ARM_W + 2.4, P.SSD_FENCE_T + 2,
+                            fz1 - fz0 + 2, mode=Mode.SUBTRACT)
                 # кінцеві стійки до бази
                 for sx_ in (fx0 + 1.0, fx1 - 1.0):
                     with Locations((sx_, yc, z0)):
@@ -248,12 +254,45 @@ def build():
         # (08.07 друк №2: кишеня під плінтус видалена — плінтус у зоні
         # SSD прибраний з корпусу разом із дугою кромки)
 
-        # ── кріпильні отвори блока (3×M3 у дно корпусу) ──
-        for (mx, my) in P.SSD_MOUNT_XY:
-            with Locations((mx, my, P.SSD_SIT_Z - 1)):
-                Cylinder(P.SSD_MOUNT_D / 2,
-                         P.SSD_SKID_H + P.SSD_BASE_T + 2,
-                         align=AMIN, mode=Mode.SUBTRACT)
+        # ── SNAPFIT (09.07, tool-less): передні ЯЗИКИ на полозах ──
+        for xc in P.SNAP_TAB_XC:
+            with Locations((xc, (P.SNAP_TAB_Y[0] + by0f) / 2,
+                            P.SNAP_TAB_Z[0])):
+                Box(P.SNAP_TAB_W, by0f - P.SNAP_TAB_Y[0] + 0.1,
+                    P.SNAP_TAB_Z[1] - P.SNAP_TAB_Z[0], align=AMIN)
+        # ── задній пружний ГАЧОК: стовп на хвості бази → балка вперед →
+        # язичок вниз перед хвостом, зуб у паз планки корпусу ──
+        aw2 = P.SNAP_ARM_W / 2
+        ax = P.SNAP_LATCH_XC
+        # проріз у базі під язичок (гнеться назад до 2.2)
+        with Locations((ax, (P.SNAP_ARM_Y0 - 0.4 + 114.6) / 2,
+                        P.SSD_SIT_Z + P.SSD_SKID_H - 0.5)):
+            Box(P.SNAP_ARM_W + 1.0, 114.6 - (P.SNAP_ARM_Y0 - 0.4),
+                P.SSD_BASE_T + 1.5, mode=Mode.SUBTRACT)
+        # стовп (жорсткий) на хвості бази
+        with Locations((ax, (114.8 + 117.2) / 2, z0)):
+            Box(P.SNAP_ARM_W, 117.2 - 114.8, 20.0 - z0, align=AMIN)
+        # балка вперед на Z18.2..20
+        with Locations((ax, (P.SNAP_ARM_Y0 + 117.2) / 2, 18.2)):
+            Box(P.SNAP_ARM_W, 117.2 - P.SNAP_ARM_Y0, 1.8, align=AMIN)
+        # язичок вниз (пружна частина, L~14.7)
+        with Locations((ax, P.SNAP_ARM_Y0 + P.SNAP_ARM_T / 2, 3.5)):
+            Box(P.SNAP_ARM_W, P.SNAP_ARM_T, 18.2 - 3.5 + 0.1, align=AMIN)
+        # зуб уперед: похила нижня грань (заходить по планці), полиця
+        # зверху в паз
+        with BuildSketch(Plane((ax - aw2, 0, 0), x_dir=(0, 1, 0),
+                               z_dir=(1, 0, 0))) as th:
+            with BuildLine():
+                Polyline((P.SNAP_TOOTH_TIP, 4.9),
+                         (P.SNAP_ARM_Y0 + 0.01, 4.9),
+                         (P.SNAP_ARM_Y0 + 0.01, 3.5),
+                         (P.SNAP_TOOTH_TIP, 4.4),
+                         (P.SNAP_TOOTH_TIP, 4.9))
+            make_face()
+        extrude(th.sketch, amount=P.SNAP_ARM_W)
+        # педалька-виступ для пальця (тягнути назад)
+        with Locations((ax, P.SNAP_ARM_Y0 + P.SNAP_ARM_T + 1.0, 4.5)):
+            Box(P.SNAP_ARM_W, 2.0, 1.8)
 
     return blk.part
 
