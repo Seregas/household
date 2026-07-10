@@ -35,7 +35,9 @@ def _clip(part, x0, y0, z0, x1, y1, z1):
 
 if __name__ == "__main__":
     tray = (floor.build() + walls.build()).fix()
-    piece = _clip(tray, 111.0, -8.0, -0.5, 137.95, 114.0, 30.0)
+    # 10.07: верх 30→25 — похила кромка стінки у стоячому друці
+    # провокувала зайві підтримки; для тесту вистачає паза (5) і скоб
+    piece = _clip(tray, 111.0, -8.0, -0.5, 137.95, 114.0, 25.0)
     print("tray piece: valid", piece.is_valid)
     save(piece, "test_tray")
 
