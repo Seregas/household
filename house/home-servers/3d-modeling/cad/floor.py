@@ -135,7 +135,9 @@ def plan_geometry():
     # смуга ПІД ТРАМПЛІНОМ бортика — суцільна (соти лишали його підошву
     # над дірками: 36.9/100.9 — «має на чомусь стояти»); задня рама від
     # 103.5 і так суцільна
-    ramp_strip = sg.box(P.WALL_L_X + P.BEAD_W - 0.5, 97.5,
+    # 10.07 (фідбек 121.3/99.72/2): суцільне — РІВНО від підошви
+    # трампліна (старт дуги 98.5, перекриття 0.1), патерни впритул
+    ramp_strip = sg.box(P.WALL_L_X + P.BEAD_W - 0.5, 98.4,
                         P.WALL_R_IN + 0.4, 104.0)
     holes = [h.difference(ramp_strip) for h in holes]
     holes = [g for h in holes for g in _polys(h)
