@@ -43,9 +43,8 @@ def plate_origin(i):
 # проєкт = список ПЛАСТИН; пластина = список об'єктів
 # (stl, назва, поворот, (dx,dy) від центру пластини, {per-object ключі})
 PROJECTS = {
-    # ОДИН ФАЙЛ, ТРИ ПЛАСТИНИ (10.07). ⚠️ КОМПРОМІС (Bambu): процес —
-    # один на ПРОЄКТ, тому шар 0.2 для всіх пластин (корпус міг би
-    # 0.24, дрібнота 0.16 — для цього лишаються окремі print_*.3mf)
+    # ОДИН ФАЙЛ, ТРИ ПЛАСТИНИ (10.07): глобальний шар 0.24 (корпус),
+    # блок/дрібнота — ПООБ'ЄКТНІ layer_height (підтверджено сейвом)
     "print_all": dict(
         plates=[
             dict(name="Корпус (лицем вниз)", objects=[
@@ -64,6 +63,13 @@ PROJECTS = {
                   "sparse_infill_density": "13%",
                   "sparse_infill_pattern": "gyroid"})]),
         ],
+        over={"layer_height": "0.24", "wall_loops": "2",
+              "sparse_infill_density": "10%",
+              "sparse_infill_pattern": "grid",
+              "brim_type": "no_brim",
+              "default_acceleration": "6000",
+              "travel_acceleration": "6000"},
+    ),
     "print_tray": dict(
         plates=[dict(name="Корпус (лицем вниз)", objects=[
             ("tray.stl", "NAS_tray", FACE_DOWN, (0.0, 0.0), {})])],
