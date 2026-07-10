@@ -31,8 +31,14 @@ IDENT = (1, 0, 0, 0, 1, 0, 0, 0, 1)
 
 ROT_Z90 = (0, 1, 0, -1, 0, 0, 0, 0, 1)   # довга вісь блока по X
 
-PLATE_STRIDE = 270.35   # крок пластин у світових координатах (з шаблону:
-                        # build tx=398.35 при центрі пластини-2 = 128)
+PLATE_STRIDE = 270.35   # крок пластин (знято з сейвів користувача)
+
+
+def plate_origin(i):
+    """Сітка пластин Studio 02.07: 2 колонки; другий ряд СПЕРЕДУ (-Y).
+    Знято з сейва користувача 10.07: плита 2 = (+270.35, 0),
+    плита 3 = (0, -270.35)."""
+    return (PLATE_STRIDE * (i % 2), -PLATE_STRIDE * (i // 2))
 
 # проєкт = список ПЛАСТИН; пластина = список об'єктів
 # (stl, назва, поворот, (dx,dy) від центру пластини, {per-object ключі})
@@ -45,29 +51,19 @@ PROJECTS = {
             dict(name="Корпус (лицем вниз)", objects=[
                 ("tray.stl", "NAS_tray", FACE_DOWN, (0.0, 0.0),
                  {"brim_type": "auto_brim", "brim_width": "5"})]),
-            # 10.07: дрібнота РАЗОМ з блоком — origin третьої пластини
-            # в Студії невідомий (grid-розкладка), а крок другої знято
-            # з файлу користувача; блок центр, вставка спереду, защіпка
-            # ззаду — все вміщається
-            # 10.07: шар — ПООБ'ЄКТНО (глобальний 0.24 під корпус;
-            # блок 0.2, дрібнота 0.16 своїми object-налаштуваннями)
-            dict(name="SSD блок + вставка IO + защіпка LSI", objects=[
+            # шар — ПООБ'ЄКТНО (глобальний 0.24 під корпус); розкладка
+            # пластин = як розклав користувач у сейві 10.07
+            dict(name="Вставка IO + защіпка LSI", objects=[
+                ("io_insert.stl", "IO_insert", FACE_DOWN, (0.0, 10.0),
+                 {"layer_height": "0.16", "outer_wall_speed": "50"}),
+                ("lsi_clip.stl", "LSI_clip", FACE_DOWN, (0.0, -25.0),
+                 {"layer_height": "0.16", "outer_wall_speed": "50"})]),
+            dict(name="SSD блок", objects=[
                 ("ssd_block.stl", "SSD_block", IDENT, (0.0, 0.0),
                  {"layer_height": "0.2",
                   "sparse_infill_density": "13%",
-                  "sparse_infill_pattern": "gyroid"}),
-                ("io_insert.stl", "IO_insert", FACE_DOWN, (0.0, -93.0),
-                 {"layer_height": "0.16", "outer_wall_speed": "50"}),
-                ("lsi_clip.stl", "LSI_clip", FACE_DOWN, (0.0, 80.0),
-                 {"layer_height": "0.16", "outer_wall_speed": "50"})]),
+                  "sparse_infill_pattern": "gyroid"})]),
         ],
-        over={"layer_height": "0.24", "wall_loops": "2",
-              "sparse_infill_density": "10%",
-              "sparse_infill_pattern": "grid",
-              "brim_type": "no_brim",
-              "default_acceleration": "6000",
-              "travel_acceleration": "6000"},
-    ),
     "print_tray": dict(
         plates=[dict(name="Корпус (лицем вниз)", objects=[
             ("tray.stl", "NAS_tray", FACE_DOWN, (0.0, 0.0), {})])],
@@ -174,9 +170,10 @@ def build_project(name, spec, tz, base_settings):
         R = np.array(rot, float).reshape(3, 3)
         vv = m.vertices @ R
         lo, hi = vv.min(0), vv.max(0)
+        px, py = plate_origin(plate_i)
         shift = np.array([
-            center + dx - (lo[0] + hi[0]) / 2 + PLATE_STRIDE * plate_i,
-            center + dy - (lo[1] + hi[1]) / 2,
+            center + dx - (lo[0] + hi[0]) / 2 + px,
+            center + dy - (lo[1] + hi[1]) / 2 + py,
             -lo[2]])
         m = trimesh.Trimesh(vertices=vv + shift, faces=m.faces,
                             process=False)
