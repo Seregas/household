@@ -43,29 +43,17 @@ def build():
     by0f, by1f = P.SSD_BASE_Y
 
     with BuildPart() as blk:
-        # ── база на ПОЛОЗАХ (08.07): 3 лижі 3мм під рейками — продув
-        # під базою (дно корпусу там соти); мости бази між полозами 6-7мм
-        with BuildSketch(Plane.XY.offset(P.SSD_SIT_Z + P.SSD_SKID_H)) as bs:
-            with Locations(((bx0f + bx1f) / 2, (by0f + by1f) / 2)):
-                RectangleRounded(bx1f - bx0f, by1f - by0f, radius=2.0)
-        extrude(bs.sketch, amount=P.SSD_BASE_T)
-        for sk0, sk1 in ((bx0f, bx0f + 3.0),
-                         (P.SSD_DIV_X[0] - 0.6, P.SSD_DIV_X[1] + 0.9),
-                         (bx1f - 3.0, bx1f)):
-            with BuildSketch(Plane.XY.offset(P.SSD_SIT_Z)) as sks:
-                with Locations(((sk0 + sk1) / 2,
-                                (by0f + P.SSD_SKID_Y1) / 2)):
-                    RectangleRounded(sk1 - sk0, P.SSD_SKID_Y1 - by0f,
-                                     radius=1.0)
-            extrude(sks.sketch, amount=P.SSD_SKID_H + 0.1)
-        # задній поперечний полоз — опора хвоста бази при друці
-        with BuildSketch(Plane.XY.offset(P.SSD_SIT_Z)) as skr:
-            with Locations(((bx0f + bx1f) / 2,
-                            sum(P.SSD_SKID_REAR) / 2)):
-                RectangleRounded(bx1f - bx0f,
-                                 P.SSD_SKID_REAR[1] - P.SSD_SKID_REAR[0],
-                                 radius=1.0)
-        extrude(skr.sketch, amount=P.SSD_SKID_H + 0.1)
+        # ── СУЦІЛЬНИЙ НИЗ (10.07, фідбек: «продуву там і так немає —
+        # скоби та лижі перекрили; суцільний з рідким заповненням
+        # зекономить матеріал і час»): один слаб Z3..8 замість полозів
+        # і тонкої бази-мостів — слайсер дає периметр+інфіл 10-15%
+        # замість 100%-тонкостінок; стоїть на рамі (над підлогою 1мм).
+        # Спереду (до y9.5) лишаються голови лиж з язиками — скобам
+        # потрібен просвіт ──
+        with BuildSketch(Plane.XY.offset(P.SSD_SIT_Z)) as bs:
+            with Locations(((bx0f + bx1f) / 2, (9.5 + by1f) / 2)):
+                RectangleRounded(bx1f - bx0f, by1f - 9.5, radius=2.0)
+        extrude(bs.sketch, amount=P.SSD_BASE_TOP - P.SSD_SIT_Z)
 
         # ── рейки: перегородка + внутрішня (профіль із лійкою, бульнос) ──
         rails = ((P.SSD_DIV_X[0], P.SSD_DIV_X[1],
@@ -290,9 +278,12 @@ def build():
             # ГОЛОВА лижі (09.07 тест-фідбек «пришив козі рукав»):
             # квадратний блок ширини язика накриває скруглений торець
             # лижі — язик виростає з рівної грані, силует суцільний
-            with Locations((xc, (by0f - 0.1 + by0f + 6.0) / 2,
-                            P.SSD_SIT_Z)):
-                Box(P.SNAP_TAB_W, 6.1, P.SSD_SKID_H + 0.1, align=AMIN)
+            # верх голови 5.4: на передустановці (блок на 4 назад)
+            # голова проходить ПІД дахом скоби (низ 5.6) — раніше 6.0
+            # впиралась, блок лягав з перекосом (10.07)
+            with Locations((xc, (by0f - 0.1 + 10.5) / 2, P.SSD_SIT_Z)):
+                Box(P.SNAP_TAB_W, 10.5 - (by0f - 0.1), 5.4 - P.SSD_SIT_Z,
+                    align=AMIN)
             with BuildSketch(Plane.YZ.offset(xc - P.SNAP_TAB_W / 2)) as tw:
                 with BuildLine():
                     Polyline((P.SNAP_TAB_Y[0], P.SNAP_TAB_Z[0]),
