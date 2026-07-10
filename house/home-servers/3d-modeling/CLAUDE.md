@@ -446,15 +446,18 @@ NAS_tray-fast-petg.3mf):**
   мм/с, fan 80, 250-255°.
 
 **📦 ГОТОВІ BAMBU-ПРОЄКТИ (10.07):** `cad/make_bambu.py` збирає з
-out/*.stl три .3mf з правильними процесами (Bambu: один шар/процес на
-проєкт): out/print_tray.3mf (корпус лицем вниз, 0.24, стінки 2, brim 5),
-out/print_block.3mf (блок дном вниз, 0.2, GYROID 13%, no-brim),
-out/print_small.3mf (вставка+защіпка лицем вниз, 0.16, зовн. периметр
-50). Спільне: efc 0.15, precise wall, seam back, bridge 28. База
-налаштувань — Metadata/project_settings.config з NAS_tray-fast-petg.3mf
-(філаментні ключі користувача НЕ чіпаємо); different_settings_to_system
-доповнюється зміненими ключами (інакше Bambu скидає до пресетів).
-Перегенерація після зміни моделей: `.venv/bin/python cad/make_bambu.py`.
+out/*.stl: **out/print_all.3mf — ОДИН файл, ТРИ пластини** (1: корпус
+лицем вниз + brim 5; 2: блок дном вниз + gyroid 13% per-object; 3:
+вставка+защіпка, периметр 50) — ⚠️ шар 0.2 на ВСІХ пластинах (Bambu:
+один процес на проєкт, per-plate не буває; писати компроміси ОДРАЗУ —
+фідбек користувача). Для «ідеальних» шарів лишаються окремі:
+print_tray.3mf (0.24), print_block.3mf (0.2), print_small.3mf (0.16).
+Спільне: efc 0.15, precise wall, seam back, bridge 28; per-object
+ключі — метадані об'єкта в model_settings.config; пластини — <plate>
+блоки там же, зсув світових координат PLATE_STRIDE=270.35. База —
+project_settings.config з NAS_tray-fast-petg.3mf (філаментні ключі
+користувача НЕ чіпаємо); different_settings_to_system доповнюється.
+Перегенерація: `.venv/bin/python cad/make_bambu.py`.
 
 **📁 ПЕРЕЙМЕНУВАННЯ КАТАЛОГУ (ЗРОБЛЕНО 10.07 на обох машинах):** Household →
 household (уніфікація з mini/GitHub). Сесії Claude Code у

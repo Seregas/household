@@ -31,21 +31,26 @@ IDENT = (1, 0, 0, 0, 1, 0, 0, 0, 1)
 
 ROT_Z90 = (0, 1, 0, -1, 0, 0, 0, 0, 1)   # довга вісь блока по X
 
-# (stl, назва, поворот, (dx,dy) від центру, {пооб'єктні ключі}) + оверрайди
+PLATE_STRIDE = 270.35   # крок пластин у світових координатах (з шаблону:
+                        # build tx=398.35 при центрі пластини-2 = 128)
+
+# проєкт = список ПЛАСТИН; пластина = список об'єктів
+# (stl, назва, поворот, (dx,dy) від центру пластини, {per-object ключі})
 PROJECTS = {
-    # ВСЕ НА ОДНІЙ ПЛАСТИНІ (10.07): шар один на пластину (0.2 —
-    # компроміс), решта відмінностей — per-object
+    # ОДИН ФАЙЛ, ТРИ ПЛАСТИНИ (10.07). ⚠️ КОМПРОМІС (Bambu): процес —
+    # один на ПРОЄКТ, тому шар 0.2 для всіх пластин (корпус міг би
+    # 0.24, дрібнота 0.16 — для цього лишаються окремі print_*.3mf)
     "print_all": dict(
-        objects=[
-            ("tray.stl", "NAS_tray", FACE_DOWN, (0.0, -82.0),
-             {"brim_type": "auto_brim", "brim_width": "5"}),
-            ("io_insert.stl", "IO_insert", FACE_DOWN, (-40.0, 0.0),
-             {"outer_wall_speed": "50"}),
-            ("ssd_block.stl", "SSD_block", ROT_Z90, (0.0, 40.0),
-             {"sparse_infill_density": "13%",
-              "sparse_infill_pattern": "gyroid"}),
-            ("lsi_clip.stl", "LSI_clip", FACE_DOWN, (90.0, 0.0),
-             {"outer_wall_speed": "50"}),
+        plates=[
+            [("tray.stl", "NAS_tray", FACE_DOWN, (0.0, 0.0),
+              {"brim_type": "auto_brim", "brim_width": "5"})],
+            [("ssd_block.stl", "SSD_block", IDENT, (0.0, 0.0),
+              {"sparse_infill_density": "13%",
+               "sparse_infill_pattern": "gyroid"})],
+            [("io_insert.stl", "IO_insert", FACE_DOWN, (-45.0, 0.0),
+              {"outer_wall_speed": "50"}),
+             ("lsi_clip.stl", "LSI_clip", FACE_DOWN, (90.0, 0.0),
+              {"outer_wall_speed": "50"})],
         ],
         over={"layer_height": "0.2", "wall_loops": "2",
               "sparse_infill_density": "10%",
@@ -53,21 +58,21 @@ PROJECTS = {
               "brim_type": "no_brim"},
     ),
     "print_tray": dict(
-        objects=[("tray.stl", "NAS_tray", FACE_DOWN, (0.0, 0.0), {})],
+        plates=[[("tray.stl", "NAS_tray", FACE_DOWN, (0.0, 0.0), {})]],
         over={"layer_height": "0.24", "wall_loops": "2",
               "sparse_infill_density": "10%",
               "sparse_infill_pattern": "grid"},
     ),
     "print_block": dict(
-        objects=[("ssd_block.stl", "SSD_block", IDENT, (0.0, 0.0), {})],
+        plates=[[("ssd_block.stl", "SSD_block", IDENT, (0.0, 0.0), {})]],
         over={"layer_height": "0.2", "wall_loops": "2",
               "sparse_infill_density": "13%",
               "sparse_infill_pattern": "gyroid",
               "brim_type": "no_brim"},
     ),
     "print_small": dict(
-        objects=[("io_insert.stl", "IO_insert", FACE_DOWN, (-45.0, 0.0), {}),
-                 ("lsi_clip.stl", "LSI_clip", FACE_DOWN, (90.0, 0.0), {})],
+        plates=[[("io_insert.stl", "IO_insert", FACE_DOWN, (-45.0, 0.0), {}),
+                 ("lsi_clip.stl", "LSI_clip", FACE_DOWN, (90.0, 0.0), {})]],
         over={"layer_height": "0.16", "wall_loops": "2",
               "outer_wall_speed": "50",
               "brim_type": "no_brim"},
@@ -129,8 +134,10 @@ def apply_overrides(settings, over):
 
 def build_project(name, spec, tz, base_settings):
     center = 128.0
-    objects, insts, rels, model_parts = [], [], [], {}
-    for i, (stl, oname, rot, (dx, dy), oset) in enumerate(spec["objects"]):
+    objects, rels, model_parts = [], [], {}
+    flat = [(pi, ob) for pi, plate in enumerate(spec["plates"])
+            for ob in plate]
+    for i, (plate_i, (stl, oname, rot, (dx, dy), oset)) in enumerate(flat):
         m = trimesh.load(HERE / "out" / stl)
         oid = 2 + i
         u = f"0000000{oid}"
@@ -144,7 +151,8 @@ def build_project(name, spec, tz, base_settings):
         R = np.array(rot, float).reshape(3, 3)
         vv = m.vertices @ R          # row-vector конвенція 3MF
         lo, hi = vv.min(0), vv.max(0)
-        tx = center + dx - (lo[0] + hi[0]) / 2
+        tx = center + dx - (lo[0] + hi[0]) / 2 \
+            + PLATE_STRIDE * plate_i
         ty = center + dy - (lo[1] + hi[1]) / 2
         tzz = -lo[2]
         tr = " ".join("%g" % x for x in rot) + \
@@ -152,8 +160,7 @@ def build_project(name, spec, tz, base_settings):
         objects.append(dict(oid=oid, name=oname, path=path, tr=tr,
                             faces=len(m.faces), obj_uuid=obj_uuid,
                             comp_uuid=comp_uuid, item_uuid=item_uuid,
-                            oset=oset))
-        insts.append(oid)
+                            oset=oset, plate=plate_i))
         rels.append(
             f'<Relationship Target="{path}" Id="rel-obj-{oid}" '
             'Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/'
@@ -195,26 +202,31 @@ def build_project(name, spec, tz, base_settings):
       <mesh_stat face_count="{o["faces"]}" edges_fixed="0" degenerate_facets="0" facets_removed="0" facets_reversed="0" backwards_edges="0"/>
     </part>
   </object>''' for o in objects)
-    inst_meta = "\n".join(f'''    <model_instance>
-      <metadata key="object_id" value="{oid}"/>
+    n_plates = len(spec["plates"])
+    plates_meta = []
+    for pi in range(n_plates):
+        inst = "\n".join(f'''    <model_instance>
+      <metadata key="object_id" value="{o["oid"]}"/>
       <metadata key="instance_id" value="0"/>
-      <metadata key="identify_id" value="{oid * 100}"/>
-    </model_instance>''' for oid in insts)
+      <metadata key="identify_id" value="{o["oid"] * 100}"/>
+    </model_instance>''' for o in objects if o["plate"] == pi)
+        plates_meta.append(f'''  <plate>
+    <metadata key="plater_id" value="{pi + 1}"/>
+    <metadata key="plater_name" value=""/>
+    <metadata key="locked" value="false"/>
+    <metadata key="filament_map_mode" value="Auto For Match"/>
+    <metadata key="filament_maps" value="1"/>
+    <metadata key="thumbnail_file" value="Metadata/plate_{pi + 1}.png"/>
+{inst}
+  </plate>''')
+    plates_xml = "\n".join(plates_meta)
     asm = "\n".join(
         f'   <assemble_item object_id="{o["oid"]}" instance_id="0" '
         f'transform="{o["tr"]}" offset="0 0 0" />' for o in objects)
     model_cfg = f'''<?xml version="1.0" encoding="UTF-8"?>
 <config>
 {obj_meta}
-  <plate>
-    <metadata key="plater_id" value="1"/>
-    <metadata key="plater_name" value=""/>
-    <metadata key="locked" value="false"/>
-    <metadata key="filament_map_mode" value="Auto For Match"/>
-    <metadata key="filament_maps" value="1"/>
-    <metadata key="thumbnail_file" value="Metadata/plate_1.png"/>
-{inst_meta}
-  </plate>
+{plates_xml}
   <assemble>
 {asm}
   </assemble>
@@ -226,16 +238,22 @@ def build_project(name, spec, tz, base_settings):
     with zipfile.ZipFile(TEMPLATE) as z:
         keep = {n: z.read(n) for n in z.namelist()
                 if n in ("[Content_Types].xml", "_rels/.rels",
-                         "Metadata/plate_1.png",
-                         "Metadata/plate_1_small.png",
-                         "Metadata/plate_no_light_1.png",
-                         "Metadata/top_1.png", "Metadata/pick_1.png",
-                         "Metadata/plate_1.json",
-                         "Metadata/cut_information.xml",
-                         "Metadata/filament_sequence.json")}
+                         "Metadata/cut_information.xml")}
+        blanks = {suf: z.read(f"Metadata/{suf}_1.png")
+                  for suf in ("plate", "plate_no_light", "top", "pick")}
+        blank_small = z.read("Metadata/plate_1_small.png")
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         for n, data in keep.items():
             z.writestr(n, data)
+        import json as _json
+        z.writestr("Metadata/filament_sequence.json", _json.dumps(
+            {f"plate_{i + 1}": {"nozzle_sequence": [],
+                                "optimal_assignment": [], "sequence": []}
+             for i in range(n_plates)}))
+        for i in range(n_plates):
+            for suf in ("plate", "plate_no_light", "top", "pick"):
+                z.writestr(f"Metadata/{suf}_{i + 1}.png", blanks[suf])
+            z.writestr(f"Metadata/plate_{i + 1}_small.png", blank_small)
         z.writestr("3D/3dmodel.model", root)
         z.writestr("3D/_rels/3dmodel.model.rels",
                    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -247,8 +265,7 @@ def build_project(name, spec, tz, base_settings):
         z.writestr("Metadata/model_settings.config", model_cfg)
         z.writestr("Metadata/project_settings.config",
                    json.dumps(settings, indent=4, ensure_ascii=False))
-    print(f"  {out.name}: об'єктів {len(objects)}, "
-          f"шар {settings['layer_height']}")
+    print(f"  {out.name}: пластин {n_plates}, об'єктів {len(objects)}, шар {settings['layer_height']}")
 
 
 if __name__ == "__main__":
