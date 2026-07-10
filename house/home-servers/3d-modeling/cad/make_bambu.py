@@ -86,7 +86,7 @@ COMMON = {"elefant_foot_compensation": "0.15",
           "initial_layer_print_height": "0.2"}
 
 
-def mesh_xml(m, obj_uuid):
+def mesh_xml(m, obj_uuid, inner_id):
     v = "\n".join('    <vertex x="%.4f" y="%.4f" z="%.4f"/>' % tuple(p)
                   for p in m.vertices)
     t = "\n".join('    <triangle v1="%d" v2="%d" v3="%d"/>' % tuple(f)
@@ -95,7 +95,7 @@ def mesh_xml(m, obj_uuid):
 <model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" requiredextensions="p">
  <metadata name="BambuStudio:3mfVersion">1</metadata>
  <resources>
-  <object id="1" p:UUID="{obj_uuid}" type="model">
+  <object id="{inner_id}" p:UUID="{obj_uuid}" type="model">
    <mesh>
    <vertices>
 {v}
@@ -140,11 +140,13 @@ def build_project(name, spec, tz, base_settings):
     for i, (plate_i, (stl, oname, rot, (dx, dy), oset)) in enumerate(flat):
         m = trimesh.load(HERE / "out" / stl)
         oid = 2 + i
-        u = f"0000000{oid}"
-        obj_uuid = f"{u}-61cb-4c03-9d28-80fed5dfa1dc"
-        comp_uuid = f"00{oid}90000-b206-40ff-9872-83e8017abed1"
-        item_uuid = f"{u}-b1ec-4553-aec9-835e5b724bb4"
-        path = f"/3D/Objects/object_{oid}.model"
+        inner = 100 + oid                     # id меша всередині файлу:
+        u = f"0000000{oid}"                   # УНІКАЛЬНИЙ (10.07: чотири
+        obj_uuid = f"{u}-61cb-4c03-9d28-80fed5dfa1dc"   # файли з id=1 —
+        inner_uuid = f"00{oid}90000-81cb-4c03-9d28-80fed5dfa1dc"  # Студія
+        comp_uuid = f"00{oid}90000-b206-40ff-9872-83e8017abed1"   # злила
+        item_uuid = f"{u}-b1ec-4553-aec9-835e5b724bb4"  # всі в один меш)
+        path = f"/3D/Objects/object_{inner}.model"
         # 10.07: поворот і позицію ЗАПІКАЄМО у вершини — Студія читала
         # матрицю item-а в іншій конвенції (row/column), корпус лягав
         # не тим боком і об'єкти з'їжджали з пластин; identity в item
@@ -159,9 +161,10 @@ def build_project(name, spec, tz, base_settings):
             -lo[2]])
         m = trimesh.Trimesh(vertices=vv + shift, faces=m.faces,
                             process=False)
-        model_parts[path.lstrip("/")] = mesh_xml(m, comp_uuid)
+        model_parts[path.lstrip("/")] = mesh_xml(m, inner_uuid, inner)
         tr = "1 0 0 0 1 0 0 0 1 0 0 0" 
-        objects.append(dict(oid=oid, name=oname, path=path, tr=tr,
+        objects.append(dict(oid=oid, inner=inner, name=oname,
+                            path=path, tr=tr,
                             faces=len(m.faces), obj_uuid=obj_uuid,
                             comp_uuid=comp_uuid, item_uuid=item_uuid,
                             oset=oset, plate=plate_i))
@@ -173,7 +176,7 @@ def build_project(name, spec, tz, base_settings):
     res = "\n".join(
         f'''  <object id="{o["oid"]}" p:UUID="{o["obj_uuid"]}" type="model">
    <components>
-    <component p:path="{o["path"]}" objectid="1" p:UUID="{o["comp_uuid"]}" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>
+    <component p:path="{o["path"]}" objectid="{o["inner"]}" p:UUID="{o["comp_uuid"]}" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>
    </components>
   </object>''' for o in objects)
     items = "\n".join(
