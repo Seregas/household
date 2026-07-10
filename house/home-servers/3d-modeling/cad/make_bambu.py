@@ -91,7 +91,10 @@ PROJECTS = {
     ),
 }
 # спільні процесні оверрайди (зазори защіпок у перших шарах, шов, мости)
-COMMON = {"elefant_foot_compensation": "0.15",
+COMMON = {"reduce_crossing_wall": "1",   # 10.07: travel об'їжджає
+          # стіни — на висоті 213 сопло не чіпляє шви верхівки (головна
+          # причина завалу високих друків; CoreXY стіл деталь не гойдає)
+          "elefant_foot_compensation": "0.15",
           "precise_outer_wall": "1",
           "seam_position": "back",
           "bridge_speed": "28",
