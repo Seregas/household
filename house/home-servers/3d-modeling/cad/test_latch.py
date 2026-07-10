@@ -42,6 +42,8 @@ if __name__ == "__main__":
     save(piece, "test_tray")
 
     blk = ssd_block.build()
-    bpiece = _clip(blk, 110.0, -2.0, 2.0, 136.0, 118.0, 13.8)
+    # 10.07: верх 13.8→10.3 — пеньки рейок і похилі продовження
+    # стінок малювали підтримки; руки гачків до 10.1 — нижче не можна
+    bpiece = _clip(blk, 110.0, -2.0, 2.0, 136.0, 118.0, 10.3)
     print("block piece: valid", bpiece.is_valid)
     save(bpiece, "test_block")
