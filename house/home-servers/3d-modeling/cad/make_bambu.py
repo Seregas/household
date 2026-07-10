@@ -64,7 +64,7 @@ PROJECTS = {
                   "sparse_infill_pattern": "gyroid"})]),
         ],
         over={"layer_height": "0.24", "wall_loops": "2",
-              "sparse_infill_density": "10%",
+              "sparse_infill_density": "8%",
               "sparse_infill_pattern": "grid",
               "brim_type": "no_brim",
               "default_acceleration": "6000",
@@ -74,7 +74,7 @@ PROJECTS = {
         plates=[dict(name="Корпус (лицем вниз)", objects=[
             ("tray.stl", "NAS_tray", FACE_DOWN, (0.0, 0.0), {})])],
         over={"layer_height": "0.24", "wall_loops": "2",
-              "sparse_infill_density": "10%",
+              "sparse_infill_density": "8%",
               "sparse_infill_pattern": "grid",
               "default_acceleration": "6000",
               "travel_acceleration": "6000"},
