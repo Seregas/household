@@ -42,15 +42,21 @@ PROJECTS = {
     # 0.24, дрібнота 0.16 — для цього лишаються окремі print_*.3mf)
     "print_all": dict(
         plates=[
-            [("tray.stl", "NAS_tray", FACE_DOWN, (0.0, 0.0),
-              {"brim_type": "auto_brim", "brim_width": "5"})],
-            [("ssd_block.stl", "SSD_block", IDENT, (0.0, 0.0),
-              {"sparse_infill_density": "13%",
-               "sparse_infill_pattern": "gyroid"})],
-            [("io_insert.stl", "IO_insert", FACE_DOWN, (-45.0, 0.0),
-              {"outer_wall_speed": "50"}),
-             ("lsi_clip.stl", "LSI_clip", FACE_DOWN, (90.0, 0.0),
-              {"outer_wall_speed": "50"})],
+            dict(name="Корпус (лицем вниз)", objects=[
+                ("tray.stl", "NAS_tray", FACE_DOWN, (0.0, 0.0),
+                 {"brim_type": "auto_brim", "brim_width": "5"})]),
+            # 10.07: дрібнота РАЗОМ з блоком — origin третьої пластини
+            # в Студії невідомий (grid-розкладка), а крок другої знято
+            # з файлу користувача; блок центр, вставка спереду, защіпка
+            # ззаду — все вміщається
+            dict(name="SSD блок + вставка IO + защіпка LSI", objects=[
+                ("ssd_block.stl", "SSD_block", IDENT, (0.0, 0.0),
+                 {"sparse_infill_density": "13%",
+                  "sparse_infill_pattern": "gyroid"}),
+                ("io_insert.stl", "IO_insert", FACE_DOWN, (0.0, -93.0),
+                 {"outer_wall_speed": "50"}),
+                ("lsi_clip.stl", "LSI_clip", FACE_DOWN, (0.0, 80.0),
+                 {"outer_wall_speed": "50"})]),
         ],
         over={"layer_height": "0.2", "wall_loops": "2",
               "sparse_infill_density": "10%",
@@ -58,21 +64,24 @@ PROJECTS = {
               "brim_type": "no_brim"},
     ),
     "print_tray": dict(
-        plates=[[("tray.stl", "NAS_tray", FACE_DOWN, (0.0, 0.0), {})]],
+        plates=[dict(name="Корпус (лицем вниз)", objects=[
+            ("tray.stl", "NAS_tray", FACE_DOWN, (0.0, 0.0), {})])],
         over={"layer_height": "0.24", "wall_loops": "2",
               "sparse_infill_density": "10%",
               "sparse_infill_pattern": "grid"},
     ),
     "print_block": dict(
-        plates=[[("ssd_block.stl", "SSD_block", IDENT, (0.0, 0.0), {})]],
+        plates=[dict(name="SSD блок (дном вниз)", objects=[
+            ("ssd_block.stl", "SSD_block", IDENT, (0.0, 0.0), {})])],
         over={"layer_height": "0.2", "wall_loops": "2",
               "sparse_infill_density": "13%",
               "sparse_infill_pattern": "gyroid",
               "brim_type": "no_brim"},
     ),
     "print_small": dict(
-        plates=[[("io_insert.stl", "IO_insert", FACE_DOWN, (-45.0, 0.0), {}),
-                 ("lsi_clip.stl", "LSI_clip", FACE_DOWN, (90.0, 0.0), {})]],
+        plates=[dict(name="Вставка IO + защіпка LSI", objects=[
+            ("io_insert.stl", "IO_insert", FACE_DOWN, (-45.0, 0.0), {}),
+            ("lsi_clip.stl", "LSI_clip", FACE_DOWN, (90.0, 0.0), {})])],
         over={"layer_height": "0.16", "wall_loops": "2",
               "outer_wall_speed": "50",
               "brim_type": "no_brim"},
@@ -136,7 +145,7 @@ def build_project(name, spec, tz, base_settings):
     center = 128.0
     objects, rels, model_parts = [], [], {}
     flat = [(pi, ob) for pi, plate in enumerate(spec["plates"])
-            for ob in plate]
+            for ob in plate["objects"]]
     for i, (plate_i, (stl, oname, rot, (dx, dy), oset)) in enumerate(flat):
         m = trimesh.load(HERE / "out" / stl)
         oid = 2 + i
@@ -217,9 +226,10 @@ def build_project(name, spec, tz, base_settings):
       <metadata key="instance_id" value="0"/>
       <metadata key="identify_id" value="{o["oid"] * 100}"/>
     </model_instance>''' for o in objects if o["plate"] == pi)
+        pname = spec["plates"][pi].get("name", "")
         plates_meta.append(f'''  <plate>
     <metadata key="plater_id" value="{pi + 1}"/>
-    <metadata key="plater_name" value=""/>
+    <metadata key="plater_name" value="{pname}"/>
     <metadata key="locked" value="false"/>
     <metadata key="filament_map_mode" value="Auto For Match"/>
     <metadata key="filament_maps" value="1"/>
