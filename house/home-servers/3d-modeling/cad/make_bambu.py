@@ -145,18 +145,22 @@ def build_project(name, spec, tz, base_settings):
         comp_uuid = f"00{oid}90000-b206-40ff-9872-83e8017abed1"
         item_uuid = f"{u}-b1ec-4553-aec9-835e5b724bb4"
         path = f"/3D/Objects/object_{oid}.model"
-        model_parts[path.lstrip("/")] = mesh_xml(m, comp_uuid)
-        # позиція: центр столу + зсув; z: низ на стіл (у повернутих осях)
+        # 10.07: поворот і позицію ЗАПІКАЄМО у вершини — Студія читала
+        # матрицю item-а в іншій конвенції (row/column), корпус лягав
+        # не тим боком і об'єкти з'їжджали з пластин; identity в item
+        # не залежить від конвенції
         import numpy as np
         R = np.array(rot, float).reshape(3, 3)
-        vv = m.vertices @ R          # row-vector конвенція 3MF
+        vv = m.vertices @ R
         lo, hi = vv.min(0), vv.max(0)
-        tx = center + dx - (lo[0] + hi[0]) / 2 \
-            + PLATE_STRIDE * plate_i
-        ty = center + dy - (lo[1] + hi[1]) / 2
-        tzz = -lo[2]
-        tr = " ".join("%g" % x for x in rot) + \
-            " %.5f %.5f %.5f" % (tx, ty, tzz)
+        shift = np.array([
+            center + dx - (lo[0] + hi[0]) / 2 + PLATE_STRIDE * plate_i,
+            center + dy - (lo[1] + hi[1]) / 2,
+            -lo[2]])
+        m = trimesh.Trimesh(vertices=vv + shift, faces=m.faces,
+                            process=False)
+        model_parts[path.lstrip("/")] = mesh_xml(m, comp_uuid)
+        tr = "1 0 0 0 1 0 0 0 1 0 0 0" 
         objects.append(dict(oid=oid, name=oname, path=path, tr=tr,
                             faces=len(m.faces), obj_uuid=obj_uuid,
                             comp_uuid=comp_uuid, item_uuid=item_uuid,
