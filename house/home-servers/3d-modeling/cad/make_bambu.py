@@ -49,16 +49,19 @@ PROJECTS = {
             # в Студії невідомий (grid-розкладка), а крок другої знято
             # з файлу користувача; блок центр, вставка спереду, защіпка
             # ззаду — все вміщається
+            # 10.07: шар — ПООБ'ЄКТНО (глобальний 0.24 під корпус;
+            # блок 0.2, дрібнота 0.16 своїми object-налаштуваннями)
             dict(name="SSD блок + вставка IO + защіпка LSI", objects=[
                 ("ssd_block.stl", "SSD_block", IDENT, (0.0, 0.0),
-                 {"sparse_infill_density": "13%",
+                 {"layer_height": "0.2",
+                  "sparse_infill_density": "13%",
                   "sparse_infill_pattern": "gyroid"}),
                 ("io_insert.stl", "IO_insert", FACE_DOWN, (0.0, -93.0),
-                 {"outer_wall_speed": "50"}),
+                 {"layer_height": "0.16", "outer_wall_speed": "50"}),
                 ("lsi_clip.stl", "LSI_clip", FACE_DOWN, (0.0, 80.0),
-                 {"outer_wall_speed": "50"})]),
+                 {"layer_height": "0.16", "outer_wall_speed": "50"})]),
         ],
-        over={"layer_height": "0.2", "wall_loops": "2",
+        over={"layer_height": "0.24", "wall_loops": "2",
               "sparse_infill_density": "10%",
               "sparse_infill_pattern": "grid",
               "brim_type": "no_brim"},
