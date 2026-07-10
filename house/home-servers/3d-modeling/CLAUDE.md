@@ -445,7 +445,18 @@ NAS_tray-fast-petg.3mf):**
 - LSI-ЗАЩІПКА (пласкою гранню вниз): шар 0.16, зовн. периметр 40-60
   мм/с, fan 80, 250-255°.
 
-**📁 ПЕРЕЙМЕНУВАННЯ КАТАЛОГУ (заплановано 10.07):** Household →
+**📦 ГОТОВІ BAMBU-ПРОЄКТИ (10.07):** `cad/make_bambu.py` збирає з
+out/*.stl три .3mf з правильними процесами (Bambu: один шар/процес на
+проєкт): out/print_tray.3mf (корпус лицем вниз, 0.24, стінки 2, brim 5),
+out/print_block.3mf (блок дном вниз, 0.2, GYROID 13%, no-brim),
+out/print_small.3mf (вставка+защіпка лицем вниз, 0.16, зовн. периметр
+50). Спільне: efc 0.15, precise wall, seam back, bridge 28. База
+налаштувань — Metadata/project_settings.config з NAS_tray-fast-petg.3mf
+(філаментні ключі користувача НЕ чіпаємо); different_settings_to_system
+доповнюється зміненими ключами (інакше Bambu скидає до пресетів).
+Перегенерація після зміни моделей: `.venv/bin/python cad/make_bambu.py`.
+
+**📁 ПЕРЕЙМЕНУВАННЯ КАТАЛОГУ (ЗРОБЛЕНО 10.07 на обох машинах):** Household →
 household (уніфікація з mini/GitHub). Сесії Claude Code у
 ~/.claude/projects/-Volumes-Data-Projects-Household-* — на
 регістронечутливому APFS підхопляться самі; якщо ні — перейменувати
