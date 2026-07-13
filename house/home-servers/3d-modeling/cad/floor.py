@@ -350,18 +350,6 @@ def build():
                 Cylinder(P.STANDOFF_HOLE_D / 2, P.STANDOFF_TOP_Z + 2,
                          align=AMIN, mode=Mode.SUBTRACT)
 
-        # ── проходи головок гвинтів ДИСКІВ (SFF-8201, бічні позиції
-        # 14.0/90.6 від заднього торця): M3 іде знизу крізь дно (⌀6.2 —
-        # головка ховається під корпус) і базу блока до палуб (⌀3.4).
-        # Були втрачені при переробці зони під сітку аддонів 13.07.
-        for cx, y_rear in ((sum(P.SSD_CH_A) / 2, P.SSD_Y[1]),
-                           (sum(P.SSD_CH_B) / 2,
-                            P.SSD_Y[1] + P.SSD_B_SHIFT)):
-            for off in (14.0, 90.6):
-                with Locations((cx, y_rear - off, -1)):
-                    Cylinder(P.SSD_HEAD_D / 2, 1 + P.FRAME_T + 1,
-                             align=AMIN, mode=Mode.SUBTRACT)
-
         # ── фаска на верхньому зовнішньому ребрі постаментів ──
         top_rims = (tray.edges()
                     .filter_by(GeomType.CIRCLE)
