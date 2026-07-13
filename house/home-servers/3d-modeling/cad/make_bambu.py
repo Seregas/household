@@ -30,6 +30,9 @@ FACE_DOWN = (1, 0, 0, 0, 0, 1, 0, -1, 0)
 IDENT = (1, 0, 0, 0, 1, 0, 0, 0, 1)
 
 ROT_Z90 = (0, 1, 0, -1, 0, 0, 0, 0, 1)   # довга вісь блока по X
+# защіпка сітки НА БОЦІ (X-гранню вниз): x'=-z, y'=y, z'=x — згин
+# коренів 2.0×0.8 у площині шарів (anchor_clip.py, 13.07)
+ROT_Y90 = (0, 0, 1, 0, 1, 0, -1, 0, 0)
 
 PLATE_STRIDE = 270.35   # крок пластин (знято з сейвів користувача)
 
@@ -52,11 +55,21 @@ PROJECTS = {
                  {"brim_type": "auto_brim", "brim_width": "5"})]),
             # шар — ПООБ'ЄКТНО (глобальний 0.24 під корпус); розкладка
             # пластин = як розклав користувач у сейві 10.07
-            dict(name="Вставка IO + защіпка LSI", objects=[
+            dict(name="Вставка IO + защіпки", objects=[
                 ("io_insert.stl", "IO_insert", FACE_DOWN, (0.0, 10.0),
                  {"layer_height": "0.16", "outer_wall_speed": "50"}),
                 ("lsi_clip.stl", "LSI_clip", FACE_DOWN, (0.0, -25.0),
-                 {"layer_height": "0.16", "outer_wall_speed": "50"})]),
+                 {"layer_height": "0.16", "outer_wall_speed": "50"}),
+                # 13.07: зачепи сітки аддонів (місток лижами вниз —
+                # бар мостами 2.6мм; защіпка на боці + brim: перші
+                # 0.75мм стоять на торці фланця 1×5мм)
+                ("anchor_bridge.stl", "Anchor_bridge", IDENT,
+                 (45.0, -25.0),
+                 {"layer_height": "0.16", "outer_wall_speed": "50"}),
+                ("anchor_latch.stl", "Anchor_latch", ROT_Y90,
+                 (-45.0, -25.0),
+                 {"layer_height": "0.16", "outer_wall_speed": "50",
+                  "brim_type": "auto_brim", "brim_width": "3"})]),
             dict(name="SSD блок", objects=[
                 ("ssd_block.stl", "SSD_block", IDENT, (0.0, 0.0),
                  {"layer_height": "0.2",
@@ -88,9 +101,13 @@ PROJECTS = {
               "brim_type": "no_brim"},
     ),
     "print_small": dict(
-        plates=[dict(name="Вставка IO + защіпка LSI", objects=[
+        plates=[dict(name="Вставка IO + защіпки", objects=[
             ("io_insert.stl", "IO_insert", FACE_DOWN, (-45.0, 0.0), {}),
-            ("lsi_clip.stl", "LSI_clip", FACE_DOWN, (90.0, 0.0), {})])],
+            ("lsi_clip.stl", "LSI_clip", FACE_DOWN, (90.0, 0.0), {}),
+            ("anchor_bridge.stl", "Anchor_bridge", IDENT,
+             (45.0, 40.0), {}),
+            ("anchor_latch.stl", "Anchor_latch", ROT_Y90, (90.0, 40.0),
+             {"brim_type": "auto_brim", "brim_width": "3"})])],
         over={"layer_height": "0.16", "wall_loops": "2",
               "outer_wall_speed": "50",
               "brim_type": "no_brim"},
