@@ -60,15 +60,16 @@ def plan_geometry():
     # соти біля S4 збіглась із гранню іншого оператора (6 відкритих ребер
     # на X96.65) — зсув фази розбиває точні збіги, функційно нейтральний
     cx0, cy0 = (x0 + x1) / 2 + 0.11, (y0 + y1) / 2
-    # 09.07: кріплення блока тепер SNAPFIT — пади-«постаменти» гвинтів
-    # видалені; суцільні зони лише під скобами язиків (прямокутні)
+    # 13.07: скоби язиків → СІТКА АДДОНІВ — суцільні пади комірок
+    # (отвір + ніша + обідок) у правій смузі, всі ряди × 2 колонки
     pads = unary_union(
         [sg.Point(x, y).buffer(P.STANDOFF_PAD_D / 2, 48)
          for x, y in P.STANDOFF_XY.values()]
-        + [sg.box(xc - P.SNAP_CLIP_GAP / 2 - P.SNAP_CLIP_WALL - 2.0,
-                  P.SNAP_CLIP_Y[0] - 2.0,
-                  xc + P.SNAP_CLIP_GAP / 2 + P.SNAP_CLIP_WALL + 2.0,
-                  P.SNAP_CLIP_Y[1] + 2.0) for xc in P.SNAP_TAB_XC])
+        + [sg.box(cx - P.ANCHOR_HOLE_W / 2 - P.ANCHOR_PAD_RIM,
+                  ry - P.ANCHOR_NICHE_L - P.ANCHOR_PAD_RIM,
+                  cx + P.ANCHOR_HOLE_W / 2 + P.ANCHOR_PAD_RIM,
+                  ry + P.ANCHOR_HOLE_L + P.ANCHOR_PAD_RIM)
+           for cx in P.ANCHOR_COLS for ry in P.ANCHOR_ROWS])
     windows = unary_union([_rounded(sg.box(k['x'][0], k['y'][0], k['x'][1], k['y'][1]),
                                     P.RAM_WIN_R)
                            for k in P.RAM_KEEPOUT.values()])
@@ -125,13 +126,9 @@ def plan_geometry():
                     continue                    # фрагмент біля постаменту → суцільний
                 holes.append(g)
 
-    # SSD живе ОКРЕМИМ блоком (ssd_block.py) на полозах; у дні від нього
-    # лише: пади ⌀10 + самонарізи кріплення блока (3xM3), зріз рами під
-    # футпринтом і зона без корони (нижче). Соти скрізь — підсос знизу.
-    y0s = P.SSD_Y[0] + P.SSD_B_SHIFT - 2
-    y1s = P.SSD_Y[1] + 2
-    # (08.07: хрести-перемички і окремі mount-пади видалені — кріплення
-    # тепер повноцінні «постаменти» через pads вище)
+    # SSD живе ОКРЕМИМ блоком (ssd_block.py); 13.07: кріпиться до дна
+    # СІТКОЮ (місток у ряду Y5 + гачок в5.2 за паз бортика) — у дні від
+    # нього нічого власного. Соти скрізь — підсос знизу.
     # смуга ПІД ТРАМПЛІНОМ бортика — суцільна (соти лишали його підошву
     # над дірками: 36.9/100.9 — «має на чомусь стояти»); задня рама від
     # 103.5 і так суцільна
@@ -186,12 +183,13 @@ def plan_geometry():
     base_keep = unary_union(
         [sg.Point(x, y).buffer(keep_r, 48)
          for x, y in P.STANDOFF_XY.values()]
-        # зони скоб: наскрізні кишені ізогріду лишали ногу скоби над
-        # дірою (фідбек 09.07: 124.38/4.5) — кишені тут не ріжемо
-        + [sg.box(xc - P.SNAP_CLIP_GAP / 2 - P.SNAP_CLIP_WALL - 1.0,
-                  P.SNAP_CLIP_Y[0] - 1.5,
-                  xc + P.SNAP_CLIP_GAP / 2 + P.SNAP_CLIP_WALL + 1.0,
-                  P.SNAP_CLIP_Y[1] + 1.5) for xc in P.SNAP_TAB_XC])
+        # комірки сітки аддонів: кишені ізогріду тут НЕ ріжемо —
+        # пад лишається суцільним 3мм (шельф/стінки отворів несуть)
+        + [sg.box(cx - P.ANCHOR_HOLE_W / 2 - P.ANCHOR_PAD_RIM,
+                  ry - P.ANCHOR_NICHE_L - P.ANCHOR_PAD_RIM,
+                  cx + P.ANCHOR_HOLE_W / 2 + P.ANCHOR_PAD_RIM,
+                  ry + P.ANCHOR_HOLE_L + P.ANCHOR_PAD_RIM)
+           for cx in P.ANCHOR_COLS for ry in P.ANCHOR_ROWS])
     pocket_region = zone.buffer(-2.0).difference(base_keep)
     pockets = []
     for (hx, hy) in cells:
@@ -325,25 +323,27 @@ def build():
                     RectangleRounded(wx1 - wx0, wy1 - wy0, radius=P.RAM_WIN_R)
             extrude(amount=1 + P.FRAME_T + 1, mode=Mode.SUBTRACT)
 
-        # ── SNAPFIT-кріплення блока (09.07, tool-less) ──
-        # скоби-містки під передні язики: стінки + дах з 45°-фаскою
-        # спереду (друк лицем вниз — профіль наростає з дна поступово)
-        for xc in P.SNAP_TAB_XC:
-            g2 = P.SNAP_CLIP_GAP / 2
-            wl = P.SNAP_CLIP_WALL
-            cy0, cy1 = P.SNAP_CLIP_Y
-            for sx in (-1, 1):
-                with Locations((xc + sx * (g2 + wl / 2),
-                                (cy0 + cy1) / 2, P.INFILL_T)):
-                    Box(wl, cy1 - cy0, P.SNAP_CLIP_TOP[1] - P.INFILL_T,
-                        align=AMIN)
-            with Locations((xc, (cy0 + cy1) / 2, P.SNAP_CLIP_TOP[0])):
-                Box(2 * g2 + 2 * wl, cy1 - cy0,
-                    P.SNAP_CLIP_TOP[1] - P.SNAP_CLIP_TOP[0], align=AMIN)
-            # (09.07: фаски-клини скоб видалені — «який сенс у нахилі»:
-            # раптові стіни цієї висоти друкуються нормально)
-        # (09.07 в3: планки-зачепа нема — зуби чіпляються в нішки
-        # торців прорізу бортика, різ у walls.py)
+        # ── СІТКА АДДОНІВ (13.07, схема в4): комірка = наскрізний отвір
+        # у паді + глуха НІША вперед (Z0..SHELF_Z) → ШЕЛЬФ над нею.
+        # Лижа містка заходить знизу-нахилом: кінчик у нішу, п'ята в
+        # отвір; зуб защіпки клацає під шельф. Друк лицем вниз: ніша =
+        # кишеня в «стелі» — міст 6мм, тягнеться без підтримок.
+        cw, hl = P.ANCHOR_HOLE_W, P.ANCHOR_HOLE_L
+        with BuildSketch(Plane.XY.offset(-1)):
+            with Locations(*[(cx, ry + hl / 2)
+                             for cx in P.ANCHOR_COLS
+                             for ry in P.ANCHOR_ROWS]):
+                RectangleRounded(cw, hl, radius=P.ANCHOR_HOLE_R)
+        extrude(amount=1 + P.FRAME_T + 1, mode=Mode.SUBTRACT)
+        # ніші: кишені знизу, перекриваються з отвором на 1 (без
+        # коінцидентних граней — суцільна порожнина лижі)
+        nl = P.ANCHOR_NICHE_L + 1.0
+        with BuildSketch(Plane.XY.offset(-1)):
+            with Locations(*[(cx, ry + (1.0 - P.ANCHOR_NICHE_L) / 2)
+                             for cx in P.ANCHOR_COLS
+                             for ry in P.ANCHOR_ROWS]):
+                RectangleRounded(cw, nl, radius=P.ANCHOR_HOLE_R)
+        extrude(amount=1 + P.ANCHOR_SHELF_Z, mode=Mode.SUBTRACT)
         # ── наскрізні отвори ⌀4 ──
         for (x, y) in P.STANDOFF_XY.values():
             with Locations((x, y, -1)):
