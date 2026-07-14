@@ -156,20 +156,23 @@ def _plans(variant):
                         if g.area < 1.5 or g.buffer(-0.45).is_empty:
                             continue
                         rhomb.append(g)
-                    # коло лопатей: ширші прорізи (ребро гриля 0.9) —
-                    # межа круга сама проступає в патерні (як було на панелі)
+                    # коло лопатей: ширші прорізи (ребро гриля 0.7 —
+                    # фідбек 14.07 «тоншими в зоні кулера»; межа круга
+                    # сама проступає в патерні, як було на панелі)
                     if blades is not None and rb.intersects(blades):
-                        pk2 = rb.buffer(-(0.45 + P.RHOMB_R)) \
+                        pk2 = rb.buffer(-(0.35 + P.RHOMB_R)) \
                                 .buffer(P.RHOMB_R, quad_segs=8) \
                                 .intersection(blades).intersection(field) \
                                 .difference(screw_pads)
                         for g in _polys(pk2):
                             if g.area >= 1.5 and not g.buffer(-0.3).is_empty:
                                 rhomb.append(g)
-        # «волосини»: стінки тонші 0.8 → у сусідній виріз
+        # «волосини»: стінки тонші 0.56 → у сусідній виріз (поріг НИЖЧЕ
+        # ребра гриля 0.7 — з 0.8 чистка з'їдала весь нетворк у колі
+        # лопатей, лишаючи 21 острів-«зірочку» в центрах шестикутників)
         mat = field.buffer(3.0).difference(unary_union(rhomb) if rhomb
                                            else sg.Polygon())
-        hair = mat.difference(mat.buffer(-0.4).buffer(0.4, quad_segs=8))
+        hair = mat.difference(mat.buffer(-0.28).buffer(0.28, quad_segs=8))
         for c in _polys(hair):
             if c.area < 5.0 and c.intersects(field):
                 rhomb.append(c)
