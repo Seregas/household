@@ -69,7 +69,12 @@ PROJECTS = {
                 ("anchor_latch.stl", "Anchor_latch", ROT_Y90,
                  (-45.0, -25.0),
                  {"layer_height": "0.16", "outer_wall_speed": "50",
-                  "brim_type": "auto_brim", "brim_width": "3"})]),
+                  "brim_type": "auto_brim", "brim_width": "3"}),
+                # 14.07: фронт-вставка з вентилятором; grille/blank —
+                # окремі out/front_grille|front_blank.stl, друкувати за
+                # потреби тими ж параметрами
+                ("front_fan.stl", "Front_fan", FACE_DOWN, (0.0, 80.0),
+                 {"layer_height": "0.16", "outer_wall_speed": "50"})]),
             dict(name="SSD блок", objects=[
                 ("ssd_block.stl", "SSD_block", IDENT, (0.0, 0.0),
                  {"layer_height": "0.2",
@@ -107,7 +112,9 @@ PROJECTS = {
             ("anchor_bridge.stl", "Anchor_bridge", IDENT,
              (45.0, 40.0), {}),
             ("anchor_latch.stl", "Anchor_latch", ROT_Y90, (90.0, 40.0),
-             {"brim_type": "auto_brim", "brim_width": "3"})])],
+             {"brim_type": "auto_brim", "brim_width": "3"}),
+            ("front_fan.stl", "Front_fan", FACE_DOWN,
+             (-45.0, 70.0), {})])],
         over={"layer_height": "0.16", "wall_loops": "2",
               "outer_wall_speed": "50",
               "brim_type": "no_brim"},
