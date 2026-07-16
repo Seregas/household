@@ -53,27 +53,28 @@ PROJECTS = {
             dict(name="Корпус (лицем вниз)", objects=[
                 ("tray.stl", "NAS_tray", FACE_DOWN, (0.0, 0.0),
                  {"brim_type": "auto_brim", "brim_width": "5"})]),
-            # шар — ПООБ'ЄКТНО (глобальний 0.24 під корпус); розкладка
-            # пластин = як розклав користувач у сейві 10.07
+            # шар — ПООБ'ЄКТНО (глобальний 0.24 під корпус); пластину
+            # перерозкладено 15.07: панель-аддон 41×89 (лицем вниз) не
+            # вміщалась на місці старої вставки 41×71
             dict(name="Вставка IO + защіпки", objects=[
-                ("io_insert.stl", "IO_insert", FACE_DOWN, (0.0, 10.0),
+                ("io_insert.stl", "IO_insert", FACE_DOWN, (0.0, 72.0),
                  {"layer_height": "0.16", "outer_wall_speed": "50"}),
-                ("lsi_clip.stl", "LSI_clip", FACE_DOWN, (0.0, -25.0),
+                ("lsi_clip.stl", "LSI_clip", FACE_DOWN, (10.0, -53.0),
                  {"layer_height": "0.16", "outer_wall_speed": "50"}),
                 # 13.07: зачепи сітки аддонів (місток лижами вниз —
                 # бар мостами 2.6мм; защіпка на боці + brim: перші
                 # 0.75мм стоять на торці фланця 1×5мм)
                 ("anchor_bridge.stl", "Anchor_bridge", IDENT,
-                 (45.0, -25.0),
+                 (50.0, -53.0),
                  {"layer_height": "0.16", "outer_wall_speed": "50"}),
                 ("anchor_latch.stl", "Anchor_latch", ROT_Y90,
-                 (-45.0, -25.0),
+                 (85.0, -53.0),
                  {"layer_height": "0.16", "outer_wall_speed": "50",
                   "brim_type": "auto_brim", "brim_width": "3"}),
-                # 14.07: фронт-вставка з вентилятором; grille/blank —
-                # окремі out/front_grille|front_blank.stl, друкувати за
-                # потреби тими ж параметрами
-                ("front_fan.stl", "Front_fan", FACE_DOWN, (0.0, 80.0),
+                # 15.07: панель-аддон правої зони з вентилятором
+                # (гвинтиться до тилу аддона); grille/blank — окремі
+                # out/front_grille|front_blank.stl, ті ж параметри
+                ("front_fan.stl", "Front_fan", FACE_DOWN, (-58.0, -53.0),
                  {"layer_height": "0.16", "outer_wall_speed": "50"})]),
             dict(name="SSD блок", objects=[
                 ("ssd_block.stl", "SSD_block", IDENT, (0.0, 0.0),
@@ -114,7 +115,7 @@ PROJECTS = {
             ("anchor_latch.stl", "Anchor_latch", ROT_Y90, (90.0, 40.0),
              {"brim_type": "auto_brim", "brim_width": "3"}),
             ("front_fan.stl", "Front_fan", FACE_DOWN,
-             (-45.0, 70.0), {})])],
+             (-45.0, 74.0), {})])],
         over={"layer_height": "0.16", "wall_loops": "2",
               "outer_wall_speed": "50",
               "brim_type": "no_brim"},

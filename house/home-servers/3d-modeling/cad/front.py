@@ -4,8 +4,10 @@ front.py — параметрична ФРОНТ-ПАНЕЛЬ 2U (рішення
   • I/O-апертура mini-ITX з оригіналу 1:1 (плата на тому ж датумі BOARD_Z)
   • кнопка ⌀12 @ (81.2, Z58) — нативний циліндр (справжнє коло у STEP)
   • слоти вушок 4+4 — дослівно з оригіналу (перевірена посадка Lab-RAX)
-  • rhombille (tumbling blocks) ЛИШЕ над I/O; права зона суцільна (під
-    майбутній виріз HBA за замірами користувача)
+  • rhombille (tumbling blocks) між бічними смугами 21мм
+  • права зона X92..133.4 РОЗРІЗАНА на всю висоту (15.07) — знімний
+    аддон front_addon.py; посадка: Т-пази у бобишках брови (згори),
+    язики+пружний палець у раму дна (знизу), half-lap по боках
 Запуск: .venv/bin/python cad/front.py
 Панель у координатах збірки: план у (X,Z), екструзія по -Y від Y=-96.4.
 """
@@ -45,12 +47,11 @@ def plan_panel():
     aper = _rounded(sg.box(P.IO_X[0], P.IO_Z[0], P.IO_X[1], P.IO_Z[1]),
                     P.INS_APER_R)
     holes.append(aper)
-    # ── ФРОНТ-АПЕРТУРА правої зони (14.07): вікно під змінну вставку
-    # (вентилятор/решітка/глуха/порти — front_insert.py); вбудований
-    # гриль/пади/отвори гвинтів ВИДАЛЕНІ з панелі разом із вікном ──
-    faper = _rounded(sg.box(P.FAP_X[0], P.FAP_Z[0], P.FAP_X[1], P.FAP_Z[1]),
-                     P.INS_APER_R)
-    holes.append(faper)
+    # ── РОЗРІЗ правої зони (15.07): панель розрізана НА ВСЮ ВИСОТУ —
+    # права секція стала знімним повнорозмірним АДДОНОМ (front_addon.py:
+    # fan/grille/blank); вікно-з-фальцом 14.07 ВИДАЛЕНО. Half-lap ламелі
+    # по боках розрізу додаються 3D у build() ──
+    holes.append(sg.box(P.ADP_X[0], -1, P.ADP_X[1], P.PANEL_H + 1))
     # ── слоти вушок (вертикальні стадіони) ──
     for xc in P.EAR_SLOT_XC:
         for z0, z1 in P.EAR_SLOT_Z:
@@ -84,10 +85,11 @@ def plan_panel():
     # навколо кожного порту
     # 09.07: «для загальної симетрії — суцільні смуги по бокам панелі
     # на 21 мм зліва і справа» (вушка/монтажні слоти в них і так
-    # лишаються отворами); ромбілі всюди між смугами — після переїзду
-    # вентилятора права зона теж ажурна (грид-межі BL/BR видалені)
-    # верх — до низу кова брови (кишені впирались у брову)
-    field = sg.box(P.EAR_L_X + 21.0, er, P.EAR_R_X - 21.0,
+    # лишаються отворами); верх — до низу кова брови (кишені впирались
+    # у брову). 15.07: права межа поля = 2мм обідка до РОЗРІЗУ (ромбілі
+    # правої зони тепер в аддоні; права смуга панелі 133.4..154.4 —
+    # суцільна, як і була: EAR_R_X−21 = ADP_X[1])
+    field = sg.box(P.EAR_L_X + 21.0, er, P.ADP_X[0] - 2.0,
                    P.PANEL_H - P.BROW_H - P.BROW_D - 0.5)
     # обідок апертури: фальц ззаду сягає +1.6, наскрізним кишеням
     # треба ще ≥1.5 суцільного — разом 3.2
@@ -99,10 +101,6 @@ def plan_panel():
     # (09.07: суцільний пад під LSI ПРИБРАНО разом із вбудованою
     # виделкою — защіпка-виделка знімна, край карти панелі не торкається
     # (упор у перемичці защіпки за 2мм від тилу) → ромбілі як скрізь)
-    # обідок фронт-апертури: як в I/O — фальц ззаду сягає +1.6,
-    # наскрізним кишеням треба ще ≥1.5 суцільного
-    fan_pads = faper.buffer(P.INS_REBATE_W + 1.6)
-    field = field.difference(fan_pads)
     fx0, fz0, fx1, fz1 = field.bounds
     ncol = int((fx1 - fx0) / dx) + 3
     nrow = int((max(fz1 - cz0, cz0 - fz0)) / dy) + 3
@@ -126,8 +124,7 @@ def plan_panel():
                        .difference(btn_pad).difference(port_pads)
                 # хвости-щілини на межі з ободом/падами (фідбек 08.07:
                 # 89.5/60.7 біля кнопки) — морф. opening знімає тонше 0.7
-                if rb.intersects(btn_pad) or rb.intersects(port_pads) \
-                        or rb.intersects(fan_pads):
+                if rb.intersects(btn_pad) or rb.intersects(port_pads):
                     pk = pk.buffer(-0.35).buffer(0.35, quad_segs=8)
                 for g in _polys(pk):
                     # ріжемо й часткові шматки по краях (границя області має
@@ -164,12 +161,13 @@ def plan_panel():
                   if c.area < 5.0 and c.intersects(field)])
 
     # ── фінал: set_precision зносить мікро-зигзаги/самоперетини швів
-    # (спрощення їх не брало — це топологія, не зайві точки); найбільша
-    # компонента = панель, решта — острови, відпадають самі
+    # (спрощення їх не брало — це топологія, не зайві точки).
+    # 15.07: розріз ділить план на ДВІ легітимні компоненти (ліва панель
+    # + права суцільна смуга — їх з'єднає брова у 3D); дрібніші 50мм² —
+    # острови-пил, відпадають
     from shapely import set_precision
     solid = set_precision(outline.difference(unary_union(holes)), 0.01)
-    comps = _polys(solid)
-    return [max(comps, key=lambda c: c.area)]
+    return [c for c in _polys(solid) if c.area > 50.0]
 
 
 def brow_part():
@@ -273,36 +271,8 @@ def build():
             with Locations((xc, -97.65, 51.85)):
                 Box(P.INS_LIP_TAB_W + 1.0, 0.8, 0.9, mode=Mode.SUBTRACT)
 
-        # ── фальц ФРОНТ-АПЕРТУРИ (14.07, та сама механіка, посилена):
-        # полиця 1.6, глибина 1.5; зрізи: зліва при z>72.4 фальц
-        # закінчується на лінії апертури (канал LSI-защіпки до X91.8),
-        # справа по 134.6 (вежа стінки на 134.9) ──
-        faperp = _rounded(sg.box(P.FAP_X[0], P.FAP_Z[0],
-                                 P.FAP_X[1], P.FAP_Z[1]), P.INS_APER_R)
-        freb = faperp.buffer(P.INS_REBATE_W, quad_segs=8)
-        clx, clz = P.FAP_CLIP_L
-        freb = freb.difference(sg.box(clx - 10, clz, clx, P.PANEL_H)) \
-                   .intersection(sg.box(P.EAR_L_X, 0, P.FAP_CLIP_RX,
-                                        P.PANEL_H))
-        for xc in P.FAP_TAB_XC:      # глибші кишені під жорсткі язички
-            freb = freb.union(sg.box(xc - P.FAP_TAB_W / 2 - 0.3,
-                                     P.FAP_Z[0] - 1.4 - P.INS_TAB_H - 0.4,
-                                     xc + P.FAP_TAB_W / 2 + 0.3,
-                                     P.FAP_Z[0]))
-        with BuildSketch(Plane.XZ.offset(96.3)) as frb:
-            with BuildLine():
-                Polyline(*list(freb.exterior.simplify(0.03).coords)[:-1],
-                         close=True)
-            make_face()
-        extrude(frb.sketch, amount=P.INS_REBATE_D + 0.1, mode=Mode.SUBTRACT)
-        # кишені бампів у стелі фальца: бамп вставки = циліндр R0.8 вісь
-        # по X, центр (xd, −97.35, 77.4) → тіло z76.6..78.2 y−98.15..−96.55;
-        # кишеня охоплює з зазором 0.1: y −98.25..−97.15 (ЗАДНЯ стінка
-        # −97.15 = уступ утримання проти виштовхування, не зсувати!),
-        # z 76.5..78.3 (зачеплення уступу над стелею 77.55 ≈ 0.65)
-        for xc in P.FAP_DIMPLE_XC:
-            with Locations((xc, -97.7, 77.4)):
-                Box(P.FAP_LIP_TAB_W + 1.0, 1.1, 1.8, mode=Mode.SUBTRACT)
+        # (15.07: фальц ФРОНТ-АПЕРТУРИ з кишенями ВИДАЛЕНО — права зона
+        # тепер повнорозмірний аддон з розрізом панелі, див. нижче)
 
         # кнопка ⌀12 — нативний циліндр (справжнє коло у STEP)
         bx, bz = P.BUTTON_XZ
@@ -311,11 +281,56 @@ def build():
                      align=(Align.CENTER, Align.CENTER, Align.MIN),
                      mode=Mode.SUBTRACT)
 
-        # (14.07: кріплення вентилятора ⌀3.2 ПЕРЕЇХАЛИ у вставку
-        # front_insert.py — вентилятор гвинтиться до вставки, не до панелі)
+        # (кріплення вентилятора ⌀3.2 — в аддоні front_addon.py;
+        # вентилятор гвинтиться до тилу аддона, не до панелі)
 
         # ── «брова» жорсткості: готова деталь (радіуси вже в ній) ──
         add(brow_part())
+
+        # ── брова у ПРОЛЬОТІ аддона (15.07): ков R5 → ПРИЗМА. Гостре
+        # «перо» кова (клин ~14° на кромці y−96.25/z80.97) над знімною
+        # секцією було б крихким і заважало б посадці; торці кова
+        # лишаються на X92/133.4. Різ до y−97.5 накриває і хвіст профілю
+        # (−96.9); плита у прольоті вже вирізана — різ повітря безпечний ──
+        ax0, ax1 = P.ADP_X
+        with Locations(((ax0 + ax1) / 2, (-97.5 - 91.4) / 2,
+                        (79.0 + P.PANEL_H - P.BROW_H) / 2)):
+            Box(ax1 - ax0, -91.4 + 97.5, P.PANEL_H - P.BROW_H - 79.0,
+                mode=Mode.SUBTRACT)
+        # передня грань брови у прольоті ВТОПЛЕНА на ADP_RECESS (тил
+        # аддона −96.4 не тре по брові; щілина схована за плитою аддона)
+        yr = -96.4 + P.ADP_RECESS
+        with Locations(((ax0 + ax1) / 2, (-99.5 + yr) / 2,
+                        (P.PANEL_H - P.BROW_H + P.PANEL_H + 0.5) / 2)):
+            Box(ax1 - ax0, yr + 99.5, P.BROW_H + 0.5, mode=Mode.SUBTRACT)
+
+        # ── БОБИШКИ Т-пазів: локальні потовщення брови назад (14мм;
+        # хорда П-рами ЦІЛА — брова не ріжеться). Перед бобишки = грань
+        # втопленої брови (копланарний union безпечний — філетів тут
+        # нема); низ 82.0 нижче низу брови 84.75, вміщує канал ──
+        for xc in P.ADP_TEE_XC:
+            with Locations((xc, (yr + P.ADP_BOSS_Y1) / 2,
+                            (P.ADP_BOSS_Z0 + P.PANEL_H) / 2)):
+                Box(P.ADP_BOSS_W, P.ADP_BOSS_Y1 - yr,
+                    P.PANEL_H - P.ADP_BOSS_Z0)
+
+        # ── Т-ПАЗИ (посадка аддона ВЕРТИКАЛЬНА згори): канал шия 4.0 →
+        # flare 45° → голова 8.0; відкриті вгору і вперед; flare паза
+        # збігається з flare ребра = ласточкін хвіст (тримає вперед) ──
+        fy0, fy1 = P.ADP_CH_FLARE_Y
+        for xc in P.ADP_TEE_XC:
+            with BuildSketch(Plane.XY.offset(P.ADP_CH_Z0)):
+                with BuildLine():
+                    Polyline((xc - P.ADP_NECK_CH_HW, -97.0),
+                             (xc - P.ADP_NECK_CH_HW, fy0),
+                             (xc - P.ADP_HEAD_CH_HW, fy1),
+                             (xc - P.ADP_HEAD_CH_HW, P.ADP_CH_Y1),
+                             (xc + P.ADP_HEAD_CH_HW, P.ADP_CH_Y1),
+                             (xc + P.ADP_HEAD_CH_HW, fy1),
+                             (xc + P.ADP_NECK_CH_HW, fy0),
+                             (xc + P.ADP_NECK_CH_HW, -97.0), close=True)
+                make_face()
+            extrude(amount=P.PANEL_H - P.ADP_CH_Z0 + 1, mode=Mode.SUBTRACT)
 
         # ── LSI (09.07 в2, «замість вбудованої»): виделки на панелі
         # НЕМА — її роль виконує ЗНІМНА защіпка-виделка (lsi_clip.py),
@@ -330,6 +345,17 @@ def build():
             with Locations((P.LSI_X + sx * (P.LSI_WELL_HW + 0.25),
                             (-95.6 + -93.2) / 2, 86.95)):
                 Box(0.5, -93.2 - -95.6, 2.1, mode=Mode.SUBTRACT)
+
+        # ── half-lap ЛАМЕЛІ по боках розрізу (15.07, ДОДАЮТЬСЯ
+        # ОСТАННІМИ — щоб зрізи брови/каналів їх не чіпали): панель
+        # лишає ПЕРЕДНІ полиці у проліт (лице y−99.4, t=LAP_T) на всю
+        # висоту; аддон лягає ззаду своєю ламеллю — тяга вперед → упор,
+        # лицьова щілина закрита. Хвіст 0.3 у тіло (жирний union) ──
+        for x0, x1 in ((ax0 - 0.3, ax0 + P.ADP_LAP_D),
+                       (ax1 - P.ADP_LAP_D, ax1 + 0.3)):
+            with Locations(((x0 + x1) / 2, -99.4 + P.ADP_LAP_T / 2,
+                            P.PANEL_H / 2)):
+                Box(x1 - x0, P.ADP_LAP_T, P.PANEL_H)
 
     return fp.part
 

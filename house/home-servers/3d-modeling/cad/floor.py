@@ -350,6 +350,27 @@ def build():
                              for ry in P.ANCHOR_ROWS]):
                 RectangleRounded(cw, nl, radius=P.ANCHOR_HOLE_R)
         extrude(amount=1 + P.ANCHOR_SHELF_Z, mode=Mode.SUBTRACT)
+        # ── посадка ПАНЕЛІ-АДДОНА (15.07): пази язиків у ПЕРЕДНІЙ рамі —
+        # відкриті згори і вперед (аддон опускається вертикально);
+        # стінки паза тримають X і зсув назад, зазори SLOT_CLR ──
+        for xc in P.ADP_TON_XC:
+            y1 = P.BODY_FRONT_Y + P.ADP_TON_L + P.ADP_SLOT_CLR
+            with BuildSketch(Plane.XY.offset(P.ADP_SLOT_Z0)):
+                with Locations((xc, (P.BODY_FRONT_Y - 0.1 + y1) / 2)):
+                    Rectangle(P.ADP_TON_W + 2 * P.ADP_SLOT_CLR,
+                              y1 - P.BODY_FRONT_Y + 0.1)
+            extrude(amount=P.FRAME_T - P.ADP_SLOT_Z0 + 1, mode=Mode.SUBTRACT)
+        # кишеня бампа пружного пальця (у передній ГРАНІ рами): бамп
+        # R0.8 з флет-верхом на BUMP_Z упирається у стелю кишені =
+        # уступ проти підйому; глибина 0.95 (виступ бампа 0.8 + 0.15)
+        pz0 = P.ADP_BUMP_Z - P.ADP_BUMP_R - 0.15
+        with BuildSketch(Plane.XY.offset(pz0)):
+            with Locations((P.ADP_FING_XC,
+                            (P.BODY_FRONT_Y - 0.1 + P.BODY_FRONT_Y
+                             + P.ADP_BUMP_R + 0.15) / 2)):
+                Rectangle(P.ADP_BUMP_W + 1.0, P.ADP_BUMP_R + 0.25)
+        extrude(amount=P.ADP_BUMP_Z + 0.15 - pz0, mode=Mode.SUBTRACT)
+
         # ── наскрізні отвори ⌀4 ──
         for (x, y) in P.STANDOFF_XY.values():
             with Locations((x, y, -1)):
