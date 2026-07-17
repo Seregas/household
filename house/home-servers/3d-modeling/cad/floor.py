@@ -98,6 +98,12 @@ def plan_geometry():
     # суцільними (жорсткість); повні соти ріжемо завжди.
     allowed = interior.difference(windows.buffer(P.RAM_WIN_RIM))
     full_hex_area = _rounded(hexp(0, 0, Rc), P.HEX_CORNER_R).area
+    # 17.07 (фідбек 86.43/92.82): точка на стінці двох сот — обидві
+    # суміжні соти НЕ ріжуться, а заливаються ізогрідом (додаються в
+    # зону корони нижче)
+    iso_fill = unary_union([sg.Point(x, y).buffer(1.0)
+                            for x, y in P.ISO_FILL_XY])
+    iso_hexes = []
     holes = []
     ncol = int((x1 - x0) / dx) + 3
     nrow = int((y1 - y0) / dy) + 3
@@ -110,6 +116,9 @@ def plan_geometry():
             h = hexp(hx, hy, Rc)
             if not h.intersects(interior):
                 continue
+            if h.intersects(iso_fill):
+                iso_hexes.append(_rounded(h, P.HEX_CORNER_R))
+                continue                        # сота заливається ізогрідом
             if h.intersects(pads):
                 continue                        # зона постаменту — без сот
             hc = _rounded(h, P.HEX_CORNER_R).intersection(allowed)
@@ -179,6 +188,15 @@ def plan_geometry():
                                   _ra["x"][0] + 0.2, _ra["y"][1]))
     # коридори вікно↔рама — гладенькі 2мм: без корони й трикутників
     zone = zone.difference(corridors)
+    # 17.07: залиті соти (ISO_FILL_XY) — у зону ізогріду; обідок 2мм по
+    # межі дає сам pocket_region (zone.buffer(-2.0) нижче)
+    if iso_hexes:
+        zone = zone.union(unary_union(iso_hexes).intersection(solid))
+    # 17.07: трим «дзьобиків» корони (клин сота↔рама звужується в
+    # гостряк; фідбек ±60.75/−44.88, −86) — вбираємо вістря колом
+    zone = zone.difference(unary_union(
+        [sg.Point(x, y).buffer(P.CROWN_TRIM_R, 32)
+         for x, y in P.CROWN_TRIM_XY]))
 
     # ── трикутні кишені (6 на комірку, R1), ребра TRI_RIB_W між ними ──
     inset = P.TRI_RIB_W / 2
@@ -210,7 +228,10 @@ def plan_geometry():
                     .buffer(P.HEX_CORNER_R, quad_segs=8) \
                     .intersection(pocket_region)
             for g in _polys(pk):
-                if g.area > 2.0:
+                # 17.07: + фільтр ширини — кишені-СЛІВЕРСИ (<0.9мм) біля
+                # кутів анкерних падів лишали тонкі гачки корони
+                # (фідбек 117.95/−33.38, 118.17/−17.12)
+                if g.area > 2.0 and not g.buffer(-0.45).is_empty:
                     pockets.append(g)
 
     from shapely import set_precision
@@ -350,29 +371,9 @@ def build():
                              for ry in P.ANCHOR_ROWS]):
                 RectangleRounded(cw, nl, radius=P.ANCHOR_HOLE_R)
         extrude(amount=1 + P.ANCHOR_SHELF_Z, mode=Mode.SUBTRACT)
-        # ── посадка ПАНЕЛІ-АДДОНА (15.07): пази язиків у ПЕРЕДНІЙ рамі —
-        # відкриті згори і вперед; стінки паза тримають X і зсув назад,
-        # зазори SLOT_CLR; язики тримаються crush-ребрами (натяг
-        # 0.1/бік — 16.07). 17.07 в3: аддон заходить КАЧАННЯМ (верх
-        # назад ~6°) — задня стінка паза згори РОЗХИЛЕНА 45° лійкою
-        # (ADP_SLOT_FUNNEL), щоб язик обертався у пазу при слаку 0.2 ──
-        for xc in P.ADP_TON_XC:
-            y1 = P.BODY_FRONT_Y + P.ADP_TON_L + P.ADP_SLOT_CLR
-            sw = P.ADP_TON_W + 2 * P.ADP_SLOT_CLR
-            with BuildSketch(Plane.XY.offset(P.ADP_SLOT_Z0)):
-                with Locations((xc, (P.BODY_FRONT_Y - 0.1 + y1) / 2)):
-                    Rectangle(sw, y1 - P.BODY_FRONT_Y + 0.1)
-            extrude(amount=P.FRAME_T - P.ADP_SLOT_Z0 + 1, mode=Mode.SUBTRACT)
-            # лійка-розхил: клин 45° на задній стінці паза від верху
-            # рами вглиб на ADP_SLOT_FUNNEL
-            with BuildSketch(Plane.YZ.offset(xc - sw / 2)) as fn:
-                with BuildLine():
-                    Polyline((y1, P.FRAME_T - P.ADP_SLOT_FUNNEL),
-                             (y1 + P.ADP_SLOT_FUNNEL + 0.5,
-                              P.FRAME_T + 0.5),
-                             (y1, P.FRAME_T + 0.5), close=True)
-                make_face()
-            extrude(fn.sketch, amount=sw, mode=Mode.SUBTRACT)
+        # (17.07 #3: пази язиків аддона в передній рамі + лійка-розхил
+        # ВИДАЛЕНІ — язики тепер у площині ламелі аддона, у кишенях
+        # смуги-обідка ПАНЕЛІ (front.py); рама дна суцільна)
 
         # ── наскрізні отвори ⌀4 ──
         for (x, y) in P.STANDOFF_XY.values():
