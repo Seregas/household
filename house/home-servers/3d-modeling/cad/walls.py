@@ -83,8 +83,15 @@ def _silhouette_shapely():
     zt = P.RIDGE_TOP_Z                    # 8.0
     rc = P.REAR_COVE_R                    # 2.0
     # 13.07 «вежа»: фронт на повну PANEL_H → горизонталь до тилу брови →
-    # вертикаль вниз до дотику кова (tv) → ков у нахил
-    pts = [(yf, 0), (yf, P.PANEL_H), (yr, P.PANEL_H), tv]
+    # вертикаль вниз до дотику кова (tv) → ков у нахил.
+    # 17.07 ч.3: задній верхній кут вежі скруглено R=BROW_R — рол вежі
+    # = рол брови (той самий циліндр по X, центр (−92.4, 87.75)); був
+    # гострий кант → кліф 0.66 на стику з роллом брови (135.7/-91.45)
+    rB = P.BROW_R
+    cT = (yr - rB, P.PANEL_H - rB)
+    pts = [(yf, 0), (yf, P.PANEL_H), (yr - rB, P.PANEL_H)]
+    pts += _arc_pts(cT, rB, (yr - rB, P.PANEL_H), (yr, P.PANEL_H - rB))
+    pts.append(tv)
     pts += _arc_pts(cc, P.WALL_SWOOP_R, tv, ts)
     pts.append(ts2)
     pts += _arc_pts(cc2, P.WALL_EDGE_CORNER_R, ts2, tv2)
@@ -140,15 +147,23 @@ def _profile_sketch():
     pA = (P.WALL_REAR_Y, zt + rc)
     pB = (P.WALL_REAR_Y + rc, zt)
     pC = (P.WALL_REAR_Y + rc + P.CREST_R, zt - P.CREST_R)
+    # 17.07 ч.3: рол кута вежі R=BROW_R (був гострий, «кульку ставить
+    # OCC» — але брова скруглена R1.0, кулька R1.2 давала кліф 0.66 на
+    # стику; тепер рол вежі = рол брови, той самий циліндр по X)
+    rB = P.BROW_R
+    cT = (yr - rB, P.PANEL_H - rB)
+    pT1 = (yr - rB, P.PANEL_H)
+    pT2 = (yr, P.PANEL_H - rB)
     s1 = _arc_side(tv, ts, cc1, P.WALL_SWOOP_R)
     s2 = _arc_side(ts2, tv2, cc2, P.WALL_EDGE_CORNER_R)
     s3 = _arc_side(pA, pB, ccv, rc)
     s4 = _arc_side(pB, pC, cpr, P.CREST_R)
+    sT = _arc_side(pT1, pT2, cT, rB)
     with BuildSketch() as sk:
         with BuildLine():
-            # 13.07 вежа: кут (yr, PANEL_H) лишаємо ГОСТРИМ у профілі —
-            # кульку на ньому ставить сам OCC у бульнос-ланцюзі
-            Polyline((yf, 0), (yf, P.PANEL_H), (yr, P.PANEL_H), tv)
+            Polyline((yf, 0), (yf, P.PANEL_H), pT1)
+            RadiusArc(pT1, pT2, sT)
+            Line(pT2, tv)
             RadiusArc(tv, ts, s1)
             Line(ts, ts2)
             RadiusArc(ts2, tv2, s2)
