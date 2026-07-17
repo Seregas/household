@@ -351,17 +351,28 @@ def build():
                 RectangleRounded(cw, nl, radius=P.ANCHOR_HOLE_R)
         extrude(amount=1 + P.ANCHOR_SHELF_Z, mode=Mode.SUBTRACT)
         # ── посадка ПАНЕЛІ-АДДОНА (15.07): пази язиків у ПЕРЕДНІЙ рамі —
-        # відкриті згори і вперед (аддон опускається вертикально);
-        # стінки паза тримають X і зсув назад, зазори SLOT_CLR; язики
-        # тримаються в пазах crush-ребрами (натяг 0.1/бік — 16.07;
-        # кишеня бампа пружного пальця ВИДАЛЕНА разом із пальцем) ──
+        # відкриті згори і вперед; стінки паза тримають X і зсув назад,
+        # зазори SLOT_CLR; язики тримаються crush-ребрами (натяг
+        # 0.1/бік — 16.07). 17.07 в3: аддон заходить КАЧАННЯМ (верх
+        # назад ~6°) — задня стінка паза згори РОЗХИЛЕНА 45° лійкою
+        # (ADP_SLOT_FUNNEL), щоб язик обертався у пазу при слаку 0.2 ──
         for xc in P.ADP_TON_XC:
             y1 = P.BODY_FRONT_Y + P.ADP_TON_L + P.ADP_SLOT_CLR
+            sw = P.ADP_TON_W + 2 * P.ADP_SLOT_CLR
             with BuildSketch(Plane.XY.offset(P.ADP_SLOT_Z0)):
                 with Locations((xc, (P.BODY_FRONT_Y - 0.1 + y1) / 2)):
-                    Rectangle(P.ADP_TON_W + 2 * P.ADP_SLOT_CLR,
-                              y1 - P.BODY_FRONT_Y + 0.1)
+                    Rectangle(sw, y1 - P.BODY_FRONT_Y + 0.1)
             extrude(amount=P.FRAME_T - P.ADP_SLOT_Z0 + 1, mode=Mode.SUBTRACT)
+            # лійка-розхил: клин 45° на задній стінці паза від верху
+            # рами вглиб на ADP_SLOT_FUNNEL
+            with BuildSketch(Plane.YZ.offset(xc - sw / 2)) as fn:
+                with BuildLine():
+                    Polyline((y1, P.FRAME_T - P.ADP_SLOT_FUNNEL),
+                             (y1 + P.ADP_SLOT_FUNNEL + 0.5,
+                              P.FRAME_T + 0.5),
+                             (y1, P.FRAME_T + 0.5), close=True)
+                make_face()
+            extrude(fn.sketch, amount=sw, mode=Mode.SUBTRACT)
 
         # ── наскрізні отвори ⌀4 ──
         for (x, y) in P.STANDOFF_XY.values():

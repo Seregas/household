@@ -35,11 +35,10 @@ ROT_Z90 = (0, 1, 0, -1, 0, 0, 0, 0, 1)   # довга вісь блока по X
 # коренів 2.0×0.8 у площині шарів (anchor_clip.py, 13.07)
 ROT_Y90 = (0, 0, 1, 0, 1, 0, -1, 0, 0)
 
-# КОВПАК LSI задньою плоскою гранню (y−92.45) вниз: y'=−z, z'=y —
-# тіло+рука лежать у площині столу, пронг гнеться по X = у площині
-# шарів (16.07; раніше друкувався FACE_DOWN лицем — з рукою так більше
-# не можна: палець висів би островом)
-ROT_REAR = (1, 0, 0, 0, 0, -1, 0, 1, 0)
+# КОВПАК LSI (17.07 в3) — знову FACE_DOWN лицем (y−96.35) вниз:
+# тіло і лезо копланарні спереду, лежать на столі; пронг гнеться по X
+# = у площині шарів (ROT_REAR ери «руки» в2 видалено: лезо на −94.95
+# висіло б островом 2.5 над столом)
 
 PLATE_STRIDE = 270.35   # крок пластин (знято з сейвів користувача)
 
@@ -66,7 +65,7 @@ PROJECTS = {
             dict(name="Вставка IO + защіпки", objects=[
                 ("io_insert.stl", "IO_insert", FACE_DOWN, (0.0, 72.0),
                  {"layer_height": "0.16", "outer_wall_speed": "50"}),
-                ("lsi_clip.stl", "LSI_clip", ROT_REAR, (10.0, -53.0),
+                ("addon_clip.stl", "Addon_clip", FACE_DOWN, (10.0, -53.0),
                  {"layer_height": "0.16", "outer_wall_speed": "50"}),
                 # 13.07: зачепи сітки аддонів (місток лижами вниз —
                 # бар мостами 2.6мм; защіпка на боці + brim: перші
@@ -116,7 +115,7 @@ PROJECTS = {
     "print_small": dict(
         plates=[dict(name="Вставка IO + защіпки", objects=[
             ("io_insert.stl", "IO_insert", FACE_DOWN, (-45.0, 0.0), {}),
-            ("lsi_clip.stl", "LSI_clip", ROT_REAR, (90.0, 0.0), {}),
+            ("addon_clip.stl", "Addon_clip", FACE_DOWN, (90.0, 0.0), {}),
             ("anchor_bridge.stl", "Anchor_bridge", IDENT,
              (45.0, 40.0), {}),
             ("anchor_latch.stl", "Anchor_latch", ROT_Y90, (90.0, 40.0),
