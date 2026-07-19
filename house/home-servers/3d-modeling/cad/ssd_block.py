@@ -260,11 +260,15 @@ def build():
                     P.SSD_Y[1] + P.SSD_B_SHIFT + 0.2 + P.SSD_FENCE_T / 2)
         stop_ko = [sg.box(yc - 2.0, P.SSD_SIT_Z, yc + 2.0,
                           P.SSD_FENCE_TOP + 1.0) for yc in fence_ys]
+        # keepout переднього ЛОЖА диска B (19.07 фідбек: ромбіль
+        # 127.17/12.06/11.83 пробивав палубу-посадку 126.06/11.60/15.75)
+        cradleB_ko = sg.box(P.SSD_Y[0] + P.SSD_B_SHIFT - 2.0, P.SSD_SIT_Z,
+                            P.SSD_Y[0] + P.SSD_B_SHIFT + 6.0, z0 + 9.0)
         rail_fields = (
             ((P.SSD_DIV_X[0], P.SSD_DIV_X[1]),
              sg.box(y0s + P.SSD_B_SHIFT - 2.0, z0 + 2.0,
                     P.SSD_RAIL_Y_END - 2.0, z0 + 22.0),
-             lens_ko + deck_ko + stop_ko),
+             lens_ko + deck_ko + stop_ko + [cradleB_ko]),
             ((P.SSD_INNER_X[0], P.SSD_INNER_X[1]),
              sg.box(P.SSD_INNER_Y[0] + 2.0, 17.0,
                     P.SSD_INNER_Y[1] - 2.0, z0 + 22.0),
