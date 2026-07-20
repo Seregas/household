@@ -281,40 +281,55 @@ def build():
         # (08.07 друк №2: кишеня під плінтус видалена — плінтус у зоні
         # SSD прибраний з корпусу разом із дугою кромки)
 
-        # ── КИШЕНІ SNAP-FIT ЗАЧЕПІВ (20.07, cad/snap_kin.py — замінили
-        # Г-гачок в5.2 з пазом бортика і 45°-виступ): зачеп друкується
-        # окремо і защолкується в кишеню ЗНИЗУ слаба (crush-ребра
-        # голови у виїмки), нога з зубом висить під слабом і клацає в
-        # слот дна. Кишеня СИМЕТРИЧНА (голова зачепа симетрична — ніс
-        # задає лише напрямок зуба нижче слаба). Стеля Z7.35 = міст
-        # 5.7мм у друці дном вниз ──
+        # ── Т-ПАЗИ SNAP-FIT ЗАЧЕПІВ (20.07 в6.1 — фідбек: «crush
+        # ненадійне; чому б просто не вставити збоку в посадкові
+        # місця?»): зачеп ЗАСУВАЄТЬСЯ по X із ближньої грані слаба до
+        # ГЛУХОГО УПОРУ (центрує на ccx). Утримання геометрією: вгору —
+        # стеля паза, вниз — полиці, по Y — стінки (тертя, зазор
+        # 0.08/бік), по X у зборі — нога в слоті дна; при знятому блоці
+        # страхує ГОРБИК біля входу (клац при засуванні, стоп назад).
+        # Щілина ноги ВІЛЬНА (±0.85): затиснута нога вкоротила б
+        # пружну довжину 4.6→2.8 → ε≈8.6% > PETG ~7%.
+        # Стеля паза = міст 5.56 у друці дном вниз (як була кишеня) ──
         for ccx, cry, _nose in P.SNAP_SSD_CELLS:
-            fw = (cry - P.SNAP_POCKET_HALF) - by0f
+            entry = -1 if (ccx - bx0f) < (bx1f - ccx) else +1
+            face = bx0f if entry < 0 else bx1f       # грань входу
+            stop = ccx - entry * P.SNAP_CLIP_W / 2   # глуха стінка
+            fw = (cry - P.SNAP_SLIDE_HALF) - by0f
             if fw < 1.0:
-                # передня комірка (ряд Y8): слаб від Y5, стінка кишені
-                # була б 0.15 — добудова-«козирок» до Y3.95 (стінка
-                # 1.2; лежить на паді дна, що йде від Y4.0)
-                tx0 = ccx - P.SNAP_POCKET_X / 2 - 1.2
-                tx1 = ccx + P.SNAP_POCKET_X / 2 + 1.2
-                ty0 = cry - P.SNAP_POCKET_HALF - 1.2
+                # передня комірка (ряд Y8): слаб від Y5, передня стінка
+                # паза була б 0.22 — добудова-«козирок» (стінка 1.2;
+                # лежить на паді дна, що йде від Y4.0)
+                tx0, tx1 = sorted((face, stop - entry * 1.2))
+                ty0 = cry - P.SNAP_SLIDE_HALF - 1.2
                 with Locations(((tx0 + tx1) / 2, (ty0 + by0f + 0.5) / 2,
                                 P.SSD_SIT_Z)):
                     Box(tx1 - tx0, by0f + 0.5 - ty0,
                         P.SSD_BASE_TOP - P.SSD_SIT_Z, align=AMIN)
         for ccx, cry, _nose in P.SNAP_SSD_CELLS:
-            with Locations((ccx, cry, P.SSD_SIT_Z - 0.5)):
-                Box(P.SNAP_POCKET_X, 2 * P.SNAP_POCKET_HALF,
-                    P.SNAP_POCKET_TOP - (P.SSD_SIT_Z - 0.5),
+            entry = -1 if (ccx - bx0f) < (bx1f - ccx) else +1
+            face = bx0f if entry < 0 else bx1f
+            stop = ccx - entry * P.SNAP_CLIP_W / 2
+            ox = face + entry * 1.0                  # виліт різу за грань
+            cx0, cx1 = sorted((ox, stop))
+            sz0, sz1 = P.SNAP_SLIDE_Z
+            # широка частина (канал голови)
+            with Locations(((cx0 + cx1) / 2, cry, sz0)):
+                Box(cx1 - cx0, 2 * P.SNAP_SLIDE_HALF, sz1 - sz0,
                     align=AMIN, mode=Mode.SUBTRACT)
-            # виїмки під crush-ребра («щоб витягти вгору треба зусиль»)
-            for sy in (-1, 1):
-                yc = cry + sy * (P.SNAP_POCKET_HALF
-                                 + P.SNAP_RECESS_HALF) / 2
-                with Locations((ccx, yc, P.SNAP_RECESS_Z[0])):
-                    Box(P.SNAP_POCKET_X,
-                        P.SNAP_RECESS_HALF - P.SNAP_POCKET_HALF,
-                        P.SNAP_RECESS_Z[1] - P.SNAP_RECESS_Z[0],
-                        align=AMIN, mode=Mode.SUBTRACT)
+            # щілина ноги (наскрізь униз крізь слаб)
+            with Locations(((cx0 + cx1) / 2, cry, P.SSD_SIT_Z - 0.5)):
+                Box(cx1 - cx0, 2 * P.SNAP_SLIT_HALF,
+                    sz0 - (P.SSD_SIT_Z - 0.5),
+                    align=AMIN, mode=Mode.SUBTRACT)
+            # горбик-стопор на +Y стінці біля входу: вертикальний
+            # циліндр R0.4, виступ 0.25 у канал (натяг об голову 0.17,
+            # кулачок = сам радіус); після посадки — позаду зачепа
+            xb = ccx + entry * (P.SNAP_CLIP_W / 2 + P.SNAP_BUMP_R)
+            yb = cry + P.SNAP_SLIDE_HALF + (P.SNAP_BUMP_R
+                                            - P.SNAP_BUMP_OFF)
+            with Locations((xb, yb, sz0)):
+                Cylinder(P.SNAP_BUMP_R, sz1 - sz0, align=AMIN)
 
     return blk.part
 
