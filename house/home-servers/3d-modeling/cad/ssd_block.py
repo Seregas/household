@@ -49,9 +49,9 @@ def build():
         # і тонкої бази-мостів — слайсер дає периметр+інфіл 10-15%
         # замість 100%-тонкостінок; стоїть на рамі (над підлогою 1мм).
         # 20.07: слаб від САМОГО переду (by0f=5.0); блок тримають ДВА
-        # універсальні snap-fit зачепи (snap_clip.py) у кишенях знизу
-        # слаба — SNAP_SSD_CELLS (122.8,Y8) і (130.6,Y68), носи в
-        # протилежні боки ──
+        # універсальні snap-fit зачепи (snap_clip.py) у Т-пазах слаба
+        # (бічне вставлення) — SNAP_SSD_CELLS (122.8,Y11) і
+        # (130.6,Y71), носи в протилежні боки ──
         with BuildSketch(Plane.XY.offset(P.SSD_SIT_Z)) as bs:
             with Locations(((bx0f + bx1f) / 2, (by0f + by1f) / 2)):
                 RectangleRounded(bx1f - bx0f, by1f - by0f, radius=2.0)
@@ -290,22 +290,10 @@ def build():
         # страхує ГОРБИК біля входу (клац при засуванні, стоп назад).
         # Щілина ноги ВІЛЬНА (±0.85): затиснута нога вкоротила б
         # пружну довжину 4.6→2.8 → ε≈8.6% > PETG ~7%.
-        # Стеля паза = міст 5.56 у друці дном вниз (як була кишеня) ──
-        for ccx, cry, _nose in P.SNAP_SSD_CELLS:
-            entry = -1 if (ccx - bx0f) < (bx1f - ccx) else +1
-            face = bx0f if entry < 0 else bx1f       # грань входу
-            stop = ccx - entry * P.SNAP_CLIP_W / 2   # глуха стінка
-            fw = (cry - P.SNAP_SLIDE_HALF) - by0f
-            if fw < 1.0:
-                # передня комірка (ряд Y8): слаб від Y5, передня стінка
-                # паза була б 0.22 — добудова-«козирок» (стінка 1.2;
-                # лежить на паді дна, що йде від Y4.0)
-                tx0, tx1 = sorted((face, stop - entry * 1.2))
-                ty0 = cry - P.SNAP_SLIDE_HALF - 1.2
-                with Locations(((tx0 + tx1) / 2, (ty0 + by0f + 0.5) / 2,
-                                P.SSD_SIT_Z)):
-                    Box(tx1 - tx0, by0f + 0.5 - ty0,
-                        P.SSD_BASE_TOP - P.SSD_SIT_Z, align=AMIN)
+        # Стеля паза = міст 5.56 у друці дном вниз (як була кишеня).
+        # (в6.2: козирок передньої комірки ВИДАЛЕНО — вся снап-сітка
+        # +3 по Y, ряд 11: стінка паза 3.22 від переду слаба, R2-кут
+        # плану живе; «нашльопка» була некрасива — фідбек) ──
         for ccx, cry, _nose in P.SNAP_SSD_CELLS:
             entry = -1 if (ccx - bx0f) < (bx1f - ccx) else +1
             face = bx0f if entry < 0 else bx1f
