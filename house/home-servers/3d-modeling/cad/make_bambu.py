@@ -2,9 +2,12 @@
 make_bambu.py — збирає ГОТОВІ Bambu Studio проєкти (.3mf) з out/*.stl
 з правильними параметрами друку для кожної деталі (10.07).
 
-Bambu обмеження: один процес (висота шару) на проєкт → ТРИ файли:
+Bambu обмеження: один процес (висота шару) на проєкт → файли:
+  • out/print_all.3mf   — ОДИН файл, 3 пластини (пооб'єктний шар)
   • out/print_tray.3mf  — корпус ЛИЦЕМ ВНИЗ, 0.24, без підтримок
   • out/print_block.3mf — SSD-блок дном вниз, 0.2, gyroid 13%
+  • out/print_test.3mf  — ТЕСТ №4 snap-fit (20.07): test_tray стоячи +
+    test_block + 2 зачепи, бойові орієнтації/шари
   • out/print_small.3mf — вставка I/O лицем вниз + КОВПАК LSI задньою
     гранню вниз (16.07), 0.16
 
@@ -112,6 +115,35 @@ PROJECTS = {
               "sparse_infill_density": "13%",
               "sparse_infill_pattern": "gyroid",
               "brim_type": "no_brim"},
+    ),
+    # 20.07: ТЕСТ №4 snap-fit (test_latch.py) — шматки в БОЙОВИХ
+    # орієнтаціях і з бойовими параметрами шару (інакше тест бреше про
+    # зазори): test_tray СТОЯЧИ на передньому торці = FACE_DOWN (та сама
+    # орієнтація слотів/кишень, що в корпусі лицем вниз, 0.24 + brim 5);
+    # test_block дном вниз 0.2 gyroid; зачепи на боці 0.16 + brim 3
+    "print_test": dict(
+        plates=[
+            dict(name="Тест дна (стоячи, як корпус)", objects=[
+                ("test_tray.stl", "Test_tray", FACE_DOWN, (0.0, 0.0),
+                 {"brim_type": "auto_brim", "brim_width": "5"})]),
+            dict(name="Тест блока + зачепи", objects=[
+                ("test_block.stl", "Test_block", IDENT, (0.0, 0.0),
+                 {"layer_height": "0.2",
+                  "sparse_infill_density": "13%",
+                  "sparse_infill_pattern": "gyroid"}),
+                ("snap_clip.stl", "Snap_clip_1", ROT_Y90, (25.0, -10.0),
+                 {"layer_height": "0.16", "outer_wall_speed": "50",
+                  "brim_type": "auto_brim", "brim_width": "3"}),
+                ("snap_clip.stl", "Snap_clip_2", ROT_Y90, (25.0, 10.0),
+                 {"layer_height": "0.16", "outer_wall_speed": "50",
+                  "brim_type": "auto_brim", "brim_width": "3"})]),
+        ],
+        over={"layer_height": "0.24", "wall_loops": "2",
+              "sparse_infill_density": "8%",
+              "sparse_infill_pattern": "grid",
+              "brim_type": "no_brim",
+              "default_acceleration": "6000",
+              "travel_acceleration": "6000"},
     ),
     "print_small": dict(
         plates=[dict(name="Вставка IO + защіпки", objects=[
