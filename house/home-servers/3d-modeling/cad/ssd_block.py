@@ -48,9 +48,10 @@ def build():
         # зекономить матеріал і час»): один слаб Z3..8 замість полозів
         # і тонкої бази-мостів — слайсер дає периметр+інфіл 10-15%
         # замість 100%-тонкостінок; стоїть на рамі (над підлогою 1мм).
-        # 13.07: слаб від САМОГО переду (by0f=5.0) — голови лиж з
-        # язиками видалені разом зі скобами (сітка аддонів: перед
-        # тримає МІСТОК-лижі anchor_clip.py у ряду Y5) ──
+        # 20.07: слаб від САМОГО переду (by0f=5.0); блок тримають ДВА
+        # універсальні snap-fit зачепи (snap_clip.py) у кишенях знизу
+        # слаба — SNAP_SSD_CELLS (122.8,Y8) і (130.6,Y68), носи в
+        # протилежні боки ──
         with BuildSketch(Plane.XY.offset(P.SSD_SIT_Z)) as bs:
             with Locations(((bx0f + bx1f) / 2, (by0f + by1f) / 2)):
                 RectangleRounded(bx1f - bx0f, by1f - by0f, radius=2.0)
@@ -66,21 +67,6 @@ def build():
                         P.SSD_SIT_Z - 0.1)):
             Box(bx1f - bx0f + 2, by1f + 1 - (ys_tr - 0.1),
                 6.0 - (P.SSD_SIT_Z - 0.1), align=AMIN, mode=Mode.SUBTRACT)
-
-        # ── КИШЕНЯ БАРА містка ЗНИЗУ слаба (13.07 в4.1): закрита
-        # порожнина під фланець-бар (Z3..4.15): розтяг по Y → стінки,
-        # вгору → стеля (зазор 0.15), вниз при знятому блоці — crush-
-        # ребра бара (натяг 0.1 по X); у зборі бар ковзає по паду дна ──
-        ry_a = 5.0                                     # ряд сітки блока
-        pc0 = P.ANCHOR_COLS[0] - P.ANCHOR_SKI_W / 2 - P.ANCHOR_BAR_CLR
-        pc1 = P.ANCHOR_COLS[1] + P.ANCHOR_SKI_W / 2 + P.ANCHOR_BAR_CLR
-        py0 = ry_a + P.ANCHOR_BAR_Y[0] - P.ANCHOR_BAR_CLR
-        py1 = ry_a + P.ANCHOR_BAR_Y[1] + P.ANCHOR_BAR_CLR
-        with BuildSketch(Plane.XY.offset(P.SSD_SIT_Z - 0.1)) as pk:
-            with Locations(((pc0 + pc1) / 2, (py0 + py1) / 2)):
-                RectangleRounded(pc1 - pc0, py1 - py0, radius=0.8)
-        extrude(pk.sketch, amount=0.1 + P.ANCHOR_BAR_POCKET_T,
-                mode=Mode.SUBTRACT)
 
         # ── рейки: перегородка + внутрішня (профіль із лійкою, бульнос) ──
         rails = ((P.SSD_DIV_X[0], P.SSD_DIV_X[1],
@@ -295,51 +281,40 @@ def build():
         # (08.07 друк №2: кишеня під плінтус видалена — плінтус у зоні
         # SSD прибраний з корпусу разом із дугою кромки)
 
-        # (13.07: SNAPFIT-язики/голови/горбики 09-10.07 ВИДАЛЕНІ разом
-        # зі скобами дна — перед блока тепер тримає МІСТОК-лижі сітки
-        # аддонів (anchor_clip.bridge_part, ряд Y5) через кишеню бара
-        # вище; зад — Г-гачок в5.2 за паз бортика, він ЖИВЕ нижче)
-
-        # ── Г-ГАЧКИ в5 (10.07, «простіше — пряма вниз з гачком, загин
-        # буквою Г»): стояк → рука-пружина над бортиком → жорстка нога
-        # за гранню → зуб у паз. Схрещені балки/стопи в4 видалені
-        # (слабо притискали і слабо тримали підйом) ──
-        rear_f = P.REAR_Y
-        az0, az1 = P.SNAP_ARM_Z
-        # 10.07: ПЕРЕДНАТЯГ 0.3 (фідбек: «зачеп має давити трохи на
-        # бортик ззаду, щоб не виймався з пазу — лижі не випадуть,
-        # перевірено»): природна позиція ноги 0.3 у тілі бортика →
-        # у зборі рука постійно піджата (залишкова ε~0.8%, при
-        # клацанні пік ~3.3%); зуб 112.3 → до дна паза 0.3
-        leg_y0 = rear_f - 0.3
-        leg_y1 = leg_y0 + P.SNAP_LEG_T
-        for hx0, hx1 in P.SNAP_HOOK_X:
-            with Locations(((hx0 + hx1) / 2, (104.8 + 107.8) / 2,
-                            P.SSD_BASE_TOP - 0.2)):        # стояк на базі
-                Box(hx1 - hx0, 3.0, az1 - (P.SSD_BASE_TOP - 0.2),
-                    align=AMIN)
-            with Locations(((hx0 + hx1) / 2, (104.8 + leg_y1) / 2, az0)):
-                Box(hx1 - hx0, leg_y1 - 104.8, az1 - az0, align=AMIN)
-            with Locations(((hx0 + hx1) / 2, (leg_y0 + leg_y1) / 2, 3.0)):
-                Box(hx1 - hx0, P.SNAP_LEG_T, az1 - 3.0, align=AMIN)
-            with Locations(((hx0 + hx1) / 2,
-                            (leg_y0 - P.SNAP_TOOTH_D + leg_y0) / 2, 3.7)):
-                Box(hx1 - hx0, P.SNAP_TOOTH_D, 4.8 - 3.7, align=AMIN)
-            # кулачок: клин знизу зуба+ноги (з'їзд по скругленню гребеня
-            # при опусканні зада — нога відгинається на руці-пружині)
-            tip = leg_y0 - P.SNAP_TOOTH_D
-            with BuildSketch(Plane((0, 0, 0), x_dir=(0, 1, 0),
-                                   z_dir=(1, 0, 0)).offset(hx0 - 0.1)) \
-                    as cam:
-                with BuildLine():
-                    Polyline((tip - 0.01, 4.4),
-                             (tip - 0.01, 2.9),
-                             (rear_f + 0.01, 2.9),
-                             (rear_f + 0.01, 3.6),
-                             close=True)
-                make_face()
-            extrude(cam.sketch, amount=(hx1 - hx0) + 0.2,
-                    mode=Mode.SUBTRACT)
+        # ── КИШЕНІ SNAP-FIT ЗАЧЕПІВ (20.07, cad/snap_kin.py — замінили
+        # Г-гачок в5.2 з пазом бортика і 45°-виступ): зачеп друкується
+        # окремо і защолкується в кишеню ЗНИЗУ слаба (crush-ребра
+        # голови у виїмки), нога з зубом висить під слабом і клацає в
+        # слот дна. Кишеня СИМЕТРИЧНА (голова зачепа симетрична — ніс
+        # задає лише напрямок зуба нижче слаба). Стеля Z7.35 = міст
+        # 5.7мм у друці дном вниз ──
+        for ccx, cry, _nose in P.SNAP_SSD_CELLS:
+            fw = (cry - P.SNAP_POCKET_HALF) - by0f
+            if fw < 1.0:
+                # передня комірка (ряд Y8): слаб від Y5, стінка кишені
+                # була б 0.15 — добудова-«козирок» до Y3.95 (стінка
+                # 1.2; лежить на паді дна, що йде від Y4.0)
+                tx0 = ccx - P.SNAP_POCKET_X / 2 - 1.2
+                tx1 = ccx + P.SNAP_POCKET_X / 2 + 1.2
+                ty0 = cry - P.SNAP_POCKET_HALF - 1.2
+                with Locations(((tx0 + tx1) / 2, (ty0 + by0f + 0.5) / 2,
+                                P.SSD_SIT_Z)):
+                    Box(tx1 - tx0, by0f + 0.5 - ty0,
+                        P.SSD_BASE_TOP - P.SSD_SIT_Z, align=AMIN)
+        for ccx, cry, _nose in P.SNAP_SSD_CELLS:
+            with Locations((ccx, cry, P.SSD_SIT_Z - 0.5)):
+                Box(P.SNAP_POCKET_X, 2 * P.SNAP_POCKET_HALF,
+                    P.SNAP_POCKET_TOP - (P.SSD_SIT_Z - 0.5),
+                    align=AMIN, mode=Mode.SUBTRACT)
+            # виїмки під crush-ребра («щоб витягти вгору треба зусиль»)
+            for sy in (-1, 1):
+                yc = cry + sy * (P.SNAP_POCKET_HALF
+                                 + P.SNAP_RECESS_HALF) / 2
+                with Locations((ccx, yc, P.SNAP_RECESS_Z[0])):
+                    Box(P.SNAP_POCKET_X,
+                        P.SNAP_RECESS_HALF - P.SNAP_POCKET_HALF,
+                        P.SNAP_RECESS_Z[1] - P.SNAP_RECESS_Z[0],
+                        align=AMIN, mode=Mode.SUBTRACT)
 
     return blk.part
 

@@ -60,15 +60,15 @@ def plan_geometry():
     # соти біля S4 збіглась із гранню іншого оператора (6 відкритих ребер
     # на X96.65) — зсув фази розбиває точні збіги, функційно нейтральний
     cx0, cy0 = (x0 + x1) / 2 + 0.11, (y0 + y1) / 2
-    # 13.07: скоби язиків → СІТКА АДДОНІВ — суцільні пади комірок
-    # (отвір + ніша + обідок) у правій смузі, всі ряди × 2 колонки
+    # 20.07: СІТКА SNAP-FIT — симетричні пади комірок (слот + підмембранна
+    # кишеня + обідок) у правій смузі, всі ряди × 2 колонки
     pads = unary_union(
         [sg.Point(x, y).buffer(P.STANDOFF_PAD_D / 2, 48)
          for x, y in P.STANDOFF_XY.values()]
-        + [sg.box(cx - P.ANCHOR_HOLE_W / 2 - P.ANCHOR_PAD_RIM,
-                  ry - P.ANCHOR_NICHE_L - P.ANCHOR_PAD_RIM,
-                  cx + P.ANCHOR_HOLE_W / 2 + P.ANCHOR_PAD_RIM,
-                  ry + P.ANCHOR_HOLE_L + P.ANCHOR_PAD_RIM)
+        + [sg.box(cx - P.SNAP_SLOT_X / 2 - P.ANCHOR_PAD_RIM,
+                  ry - P.SNAP_TOOTH_POCKET_Y - P.ANCHOR_PAD_RIM,
+                  cx + P.SNAP_SLOT_X / 2 + P.ANCHOR_PAD_RIM,
+                  ry + P.SNAP_TOOTH_POCKET_Y + P.ANCHOR_PAD_RIM)
            for cx in P.ANCHOR_COLS for ry in P.ANCHOR_ROWS])
     windows = unary_union([_rounded(sg.box(k['x'][0], k['y'][0], k['x'][1], k['y'][1]),
                                     P.RAM_WIN_R)
@@ -207,12 +207,12 @@ def plan_geometry():
     base_keep = unary_union(
         [sg.Point(x, y).buffer(keep_r, 48)
          for x, y in P.STANDOFF_XY.values()]
-        # комірки сітки аддонів: кишені ізогріду тут НЕ ріжемо —
-        # пад лишається суцільним 3мм (шельф/стінки отворів несуть)
-        + [sg.box(cx - P.ANCHOR_HOLE_W / 2 - P.ANCHOR_PAD_RIM,
-                  ry - P.ANCHOR_NICHE_L - P.ANCHOR_PAD_RIM,
-                  cx + P.ANCHOR_HOLE_W / 2 + P.ANCHOR_PAD_RIM,
-                  ry + P.ANCHOR_HOLE_L + P.ANCHOR_PAD_RIM)
+        # комірки snap-fit: кишені ізогріду тут НЕ ріжемо — пад
+        # суцільний (мембрана над підмембранною кишенею і так 1.6)
+        + [sg.box(cx - P.SNAP_SLOT_X / 2 - P.ANCHOR_PAD_RIM,
+                  ry - P.SNAP_TOOTH_POCKET_Y - P.ANCHOR_PAD_RIM,
+                  cx + P.SNAP_SLOT_X / 2 + P.ANCHOR_PAD_RIM,
+                  ry + P.SNAP_TOOTH_POCKET_Y + P.ANCHOR_PAD_RIM)
            for cx in P.ANCHOR_COLS for ry in P.ANCHOR_ROWS])
     pocket_region = zone.buffer(-2.0).difference(base_keep)
     pockets = []
@@ -350,27 +350,26 @@ def build():
                     RectangleRounded(wx1 - wx0, wy1 - wy0, radius=P.RAM_WIN_R)
             extrude(amount=1 + P.FRAME_T + 1, mode=Mode.SUBTRACT)
 
-        # ── СІТКА АДДОНІВ (13.07, схема в4): комірка = наскрізний отвір
-        # у паді + глуха НІША вперед (Z0..SHELF_Z) → ШЕЛЬФ над нею.
-        # Лижа містка заходить знизу-нахилом: кінчик у нішу, п'ята в
-        # отвір; зуб защіпки клацає під шельф. Друк лицем вниз: ніша =
-        # кишеня в «стелі» — міст 6мм, тягнеться без підтримок.
-        cw, hl = P.ANCHOR_HOLE_W, P.ANCHOR_HOLE_L
+        # ── СІТКА АДДОНІВ (20.07, snap-fit — cad/snap_kin.py): комірка =
+        # СИМЕТРИЧНИЙ слот у мембрані (наскрізь) + ПІДМЕМБРАННА КИШЕНЯ
+        # знизу Z0..LEDGE (1.4) — зуб зачепа чіпляється під мембрану і
+        # ХОВАЄТЬСЯ В ТОВЩІ ДНА (знизу корпусу не видно, нижче Z0 нічого).
+        # Кишеня відкрита вниз — крізь неї зуби притискаються при
+        # зніманні. Друк лицем вниз: стінки вертикальні, без підтримок.
         with BuildSketch(Plane.XY.offset(-1)):
-            with Locations(*[(cx, ry + hl / 2)
+            with Locations(*[(cx, ry)
                              for cx in P.ANCHOR_COLS
                              for ry in P.ANCHOR_ROWS]):
-                RectangleRounded(cw, hl, radius=P.ANCHOR_HOLE_R)
+                RectangleRounded(P.SNAP_SLOT_X, 2 * P.SNAP_SLOT_HALF,
+                                 radius=P.SNAP_SLOT_R)
         extrude(amount=1 + P.FRAME_T + 1, mode=Mode.SUBTRACT)
-        # ніші: кишені знизу, перекриваються з отвором на 1 (без
-        # коінцидентних граней — суцільна порожнина лижі)
-        nl = P.ANCHOR_NICHE_L + 1.0
         with BuildSketch(Plane.XY.offset(-1)):
-            with Locations(*[(cx, ry + (1.0 - P.ANCHOR_NICHE_L) / 2)
+            with Locations(*[(cx, ry)
                              for cx in P.ANCHOR_COLS
                              for ry in P.ANCHOR_ROWS]):
-                RectangleRounded(cw, nl, radius=P.ANCHOR_HOLE_R)
-        extrude(amount=1 + P.ANCHOR_SHELF_Z, mode=Mode.SUBTRACT)
+                RectangleRounded(P.SNAP_SLOT_X, 2 * P.SNAP_TOOTH_POCKET_Y,
+                                 radius=0.8)
+        extrude(amount=1 + P.SNAP_LEDGE_Z, mode=Mode.SUBTRACT)
         # (17.07 #3: пази язиків аддона в передній рамі + лійка-розхил
         # ВИДАЛЕНІ — язики тепер у площині ламелі аддона, у кишенях
         # смуги-обідка ПАНЕЛІ (front.py); рама дна суцільна)

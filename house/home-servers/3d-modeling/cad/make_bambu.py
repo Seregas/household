@@ -31,8 +31,9 @@ FACE_DOWN = (1, 0, 0, 0, 0, 1, 0, -1, 0)
 IDENT = (1, 0, 0, 0, 1, 0, 0, 0, 1)
 
 ROT_Z90 = (0, 1, 0, -1, 0, 0, 0, 0, 1)   # довга вісь блока по X
-# защіпка сітки НА БОЦІ (X-гранню вниз): x'=-z, y'=y, z'=x — згин
-# коренів 2.0×0.8 у площині шарів (anchor_clip.py, 13.07)
+# snap-зачеп сітки НА БОЦІ (X-гранню вниз): x'=-z, y'=y, z'=x — весь
+# зачеп = YZ-профіль, кожен шар ідентичний; згин ноги-пружини по Y
+# У ПЛОЩИНІ шарів (snap_clip.py, 20.07)
 ROT_Y90 = (0, 0, 1, 0, 1, 0, -1, 0, 0)
 
 # КОВПАК LSI (17.07 в3) — знову FACE_DOWN лицем (y−96.35) вниз:
@@ -67,14 +68,14 @@ PROJECTS = {
                  {"layer_height": "0.16", "outer_wall_speed": "50"}),
                 ("addon_clip.stl", "Addon_clip", FACE_DOWN, (10.0, -53.0),
                  {"layer_height": "0.16", "outer_wall_speed": "50"}),
-                # 13.07: зачепи сітки аддонів (місток лижами вниз —
-                # бар мостами 2.6мм; защіпка на боці + brim: перші
-                # 0.75мм стоять на торці фланця 1×5мм)
-                ("anchor_bridge.stl", "Anchor_bridge", IDENT,
+                # 20.07: snap-зачепи сітки (2 шт на SSD-блок; на боці
+                # + brim — деталь 5.2×5.9×7.2, площа опори мала)
+                ("snap_clip.stl", "Snap_clip_1", ROT_Y90,
                  (50.0, -53.0),
-                 {"layer_height": "0.16", "outer_wall_speed": "50"}),
-                ("anchor_latch.stl", "Anchor_latch", ROT_Y90,
-                 (85.0, -53.0),
+                 {"layer_height": "0.16", "outer_wall_speed": "50",
+                  "brim_type": "auto_brim", "brim_width": "3"}),
+                ("snap_clip.stl", "Snap_clip_2", ROT_Y90,
+                 (65.0, -53.0),
                  {"layer_height": "0.16", "outer_wall_speed": "50",
                   "brim_type": "auto_brim", "brim_width": "3"}),
                 # 15.07: панель-аддон правої зони з вентилятором
@@ -116,9 +117,9 @@ PROJECTS = {
         plates=[dict(name="Вставка IO + защіпки", objects=[
             ("io_insert.stl", "IO_insert", FACE_DOWN, (-45.0, 0.0), {}),
             ("addon_clip.stl", "Addon_clip", FACE_DOWN, (90.0, 0.0), {}),
-            ("anchor_bridge.stl", "Anchor_bridge", IDENT,
-             (45.0, 40.0), {}),
-            ("anchor_latch.stl", "Anchor_latch", ROT_Y90, (90.0, 40.0),
+            ("snap_clip.stl", "Snap_clip_1", ROT_Y90, (45.0, 40.0),
+             {"brim_type": "auto_brim", "brim_width": "3"}),
+            ("snap_clip.stl", "Snap_clip_2", ROT_Y90, (60.0, 40.0),
              {"brim_type": "auto_brim", "brim_width": "3"}),
             ("front_fan.stl", "Front_fan", FACE_DOWN,
              (-45.0, 74.0), {})])],
