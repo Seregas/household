@@ -387,6 +387,24 @@ def build():
                                and e.radius > P.STANDOFF_HOLE_D / 2 + 0.5))
         chamfer(top_rims, length=P.STANDOFF_CHAMFER)
 
+        # ── 20.07 (зонд probe_print): дозріз колон над RAM-вікнами ──
+        # Різ вище (до Z4) лишав скибку колони S3 z4..7.55 НАД вікном B —
+        # у друці лицем вниз вона стартувала ОСТРОВОМ у повітрі (6.5 мм²,
+        # висота 167). Різ ПІСЛЯ фаски (chamfer хоче повне коло обода;
+        # спроба «різ до фаски» валила chamfer на дузі+хорді). Проти
+        # копланарності зі стінками старого різу (invalid-шелл, урок
+        # 02.07): футпринт +0.1 назовні, низ Z3.5 — у повітрі вікна,
+        # жодної спільної площини. Зачіпає ЛИШЕ колону (обідок/корона
+        # закінчуються на Z3); кліренс до RAM-модуля стає на 0.1 більший.
+        for k in P.RAM_KEEPOUT.values():
+            wx0, wx1 = k['x']; wy0, wy1 = k['y']
+            with BuildSketch(Plane.XY.offset(P.FRAME_T + 0.5)):
+                with Locations(((wx0 + wx1) / 2, (wy0 + wy1) / 2)):
+                    RectangleRounded(wx1 - wx0 + 0.2, wy1 - wy0 + 0.2,
+                                     radius=P.RAM_WIN_R)
+            extrude(amount=P.STANDOFF_TOP_Z - P.FRAME_T + 1,
+                    mode=Mode.SUBTRACT)
+
     return tray.part
 
 
