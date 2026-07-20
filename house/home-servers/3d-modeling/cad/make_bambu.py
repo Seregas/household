@@ -8,6 +8,8 @@ Bambu обмеження: один процес (висота шару) на п�
   • out/print_block.3mf — SSD-блок дном вниз, 0.2, gyroid 13%
   • out/print_test.3mf  — ТЕСТ №4 snap-fit (20.07): test_tray стоячи +
     test_block + 2 зачепи, бойові орієнтації/шари
+  • out/print_clips.3mf — ЛИШЕ 2 зачепи (в6.3, передрук інтерфейсної
+    деталі: слот дна і Т-паз блока — старі), 0.16 + brim 3
   • out/print_small.3mf — вставка I/O лицем вниз + КОВПАК LSI задньою
     гранню вниз (16.07), 0.16
 
@@ -144,6 +146,19 @@ PROJECTS = {
               "brim_type": "no_brim",
               "default_acceleration": "6000",
               "travel_acceleration": "6000"},
+    ),
+    # 20.07 в6.3: міні-проєкт для передруку ЛИШЕ зачепів (клин-дотиск) —
+    # модульність в дії: слот дна і Т-паз блока вже надруковані, міняється
+    # лише інтерфейсна деталь
+    "print_clips": dict(
+        plates=[dict(name="2 зачепи (на боці)", objects=[
+            ("snap_clip.stl", "Snap_clip_1", ROT_Y90, (-8.0, 0.0),
+             {"brim_type": "auto_brim", "brim_width": "3"}),
+            ("snap_clip.stl", "Snap_clip_2", ROT_Y90, (8.0, 0.0),
+             {"brim_type": "auto_brim", "brim_width": "3"})])],
+        over={"layer_height": "0.16", "wall_loops": "2",
+              "outer_wall_speed": "50",
+              "brim_type": "no_brim"},
     ),
     "print_small": dict(
         plates=[dict(name="Вставка IO + защіпки", objects=[
