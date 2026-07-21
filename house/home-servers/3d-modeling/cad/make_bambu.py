@@ -407,7 +407,10 @@ def build_project(name, spec, tz, base_settings):
 </model>
 '''
     def parts_meta(o):
-        p = [f'''    <part id="1" subtype="normal_part">
+        # part id = id МЕША в об'єкт-файлі (objectid компонента) — так
+        # матчить Студія (сейв користувача: parts 1/3/5/7 = inner ids);
+        # з "1"/"2" куб-модифікатор не матчився → ставав normal_part
+        p = [f'''    <part id="{o["inner"]}" subtype="normal_part">
       <metadata key="name" value="{o["name"]}"/>
       <metadata key="matrix" value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"/>
       <metadata key="source_file" value="{o["name"]}.stl"/>
@@ -421,7 +424,7 @@ def build_project(name, spec, tz, base_settings):
             # per-object scalar overrides працюють так само)
             mset = "\n".join(f'      <metadata key="{k}" value="{v}"/>'
                              for k, v in o["mod"]["set"].items())
-            p.append(f'''    <part id="2" subtype="modifier_part">
+            p.append(f'''    <part id="{o["mod"]["inner"]}" subtype="modifier_part">
       <metadata key="name" value="{o["mod"]["name"]}"/>
       <metadata key="matrix" value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"/>
 {mset}
