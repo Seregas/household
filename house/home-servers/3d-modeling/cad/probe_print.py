@@ -18,6 +18,7 @@ from shapely.ops import unary_union
 FACE_DOWN = (1, 0, 0, 0, 0, 1, 0, -1, 0)
 IDENT = (1, 0, 0, 0, 1, 0, 0, 0, 1)
 ROT_Y90 = (0, 0, 1, 0, 1, 0, -1, 0, 0)
+ROT_REAR = (1, 0, 0, 0, 0, -1, 0, 1, 0)   # 21.07: фронт-аддон тилом вниз
 
 # (stl, назва, матриця, висота шару) — рівно як у print_all.3mf
 JOBS = [
@@ -25,7 +26,7 @@ JOBS = [
     ("out/io_insert.stl", "Вставка IO",           FACE_DOWN, 0.16),
     ("out/addon_clip.stl","Аддон-кліп",           FACE_DOWN, 0.16),
     ("out/snap_clip.stl", "Snap-зачеп (на боці)", ROT_Y90,   0.16),
-    ("out/front_fan.stl", "Фронт-аддон fan",      FACE_DOWN, 0.16),
+    ("out/front_fan.stl", "Фронт-аддон fan (тилом вниз)", ROT_REAR, 0.16),
     ("out/ssd_block.stl", "SSD-блок (дном вниз)", IDENT,     0.20),
 ]
 
