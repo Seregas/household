@@ -67,19 +67,23 @@ def plate_origin(i):
     return (PLATE_STRIDE * (i % 2), -PLATE_STRIDE * (i // 2))
 
 
-# ── 21.07: ЗМІННИЙ ШАР (variable layer height) ──────────────────────────
+# ── 21.07: ЗМІННИЙ ШАР — height ranges ──────────────────────────────────
 # Банди тонкого шару 0.12 на висотах ПОСАДКОВИХ КРОМОК — точність зубів/
-# полиць зачепів без здорожчання всього друку. spans_rz — у «повернутому»
-# домені (координата, що стає віссю Z друку: model-Y для FACE_DOWN,
-# model-Z для IDENT); у build_project конвертується відніманням lo[2]
-# (низ деталі → стіл). Корпус: усі 6 рядів снап-сітки (дно друкується
-# РАЗ — майбутні аддони стануть у будь-який ряд); слот ±1.15 + кишеня
-# ±2.0 → півширина банди 2.2.
-VLH_TRAY = {"fine": 0.12, "ramp": 1.0,
+# полиць зачепів без здорожчання всього друку. Механізм: Metadata/
+# layer_config_ranges.xml (знято 1:1 із сейва користувача з одним
+# height-range модифікатором; «мій» layer_heights_profile.txt Студія
+# ігнорувала). object id у файлі = 1-based ПОРЯДОК об'єкта в
+# 3dmodel.model (семпл: XML-ids 2/4/6/8, range id=1 на першому).
+# spans_rz — у «повернутому» домені (координата, що стає віссю Z друку:
+# model-Y для FACE_DOWN, model-Z для IDENT); у build_project
+# конвертується відніманням lo[2] (низ деталі → стіл).
+# Корпус: усі 6 рядів снап-сітки (дно друкується РАЗ — майбутні аддони
+# стануть у будь-який ряд); слот ±1.15 + кишеня ±2.0 → півширина 2.2.
+VLH_TRAY = {"fine": 0.12,
             "spans_rz": [(r - 2.2, r + 2.2) for r in P.ANCHOR_ROWS]}
 # Блок: зона Т-пазів (полиці Z5.9, стеля 7.35, верх слаба 8; люфти
 # 0.1/0.15 порівнянні з квантуванням шару 0.2 → тонкий шар критичний)
-VLH_BLOCK = {"fine": 0.12, "ramp": 1.0, "spans_rz": [(5.2, 8.2)]}
+VLH_BLOCK = {"fine": 0.12, "spans_rz": [(5.2, 8.2)]}
 # Модифікатор «повільний верх» корпусу: вище z'=165 (останні ~48 мм
 # друку) периметри повільніше — важіль високої деталі великий, тонкі
 # плити стінок гойдаються, шви верхівки чистіші
@@ -87,27 +91,23 @@ MOD_TOP = {"name": "slow_top", "z0": 165.0,
            "set": {"outer_wall_speed": "50", "inner_wall_speed": "80"}}
 
 
-def vlh_line(idx, spans, base, fine, ramp, height):
-    """Рядок Metadata/layer_heights_profile.txt для одного об'єкта:
-    object_id=IDX|z;h;z;h;…  (IDX = 1-based ПОРЯДОК об'єкта в
-    3dmodel.model, НЕ XML id — формат успадковано від PrusaSlicer);
-    кусково-лінійна інтерполяція між точками, z від низу деталі."""
-    pts = [(0.0, base)]
+def vlh_ranges(idx, spans, fine, height):
+    """<object> для Metadata/layer_config_ranges.xml: height-range
+    модифікатори одного об'єкта (idx = 1-based порядок у 3dmodel.model);
+    формат 1:1 із сейва Студії."""
+    rngs = []
     for a, b in sorted(spans):
-        a = max(a, 0.6)                     # перші шари не чіпаємо
+        a = max(a, 0.4)                     # перші шари не чіпаємо
         b = min(b, height - 0.01)
         if b <= a:
             continue
-        pts += [(max(a - ramp, pts[-1][0] + 0.02), base), (a, fine),
-                (b, fine), (min(b + ramp, height), base)]
-    pts.append((height + 1.0, base))
-    vals, lastz = [], -1.0
-    for z, hh in pts:
-        if z <= lastz:                      # строго зростаючі z
-            z = lastz + 0.01
-        lastz = z
-        vals += [z, hh]
-    return f"object_id={idx}|" + ";".join("%.6f" % v for v in vals)
+        rngs.append(f'''  <range min_z="{a:.4f}" max_z="{b:.4f}">
+   <option opt_key="extruder">0</option>
+   <option opt_key="layer_height">{fine}</option>
+  </range>''')
+    if not rngs:
+        return None
+    return f' <object id="{idx}">\n' + "\n".join(rngs) + "\n </object>"
 
 
 # проєкт = список ПЛАСТИН; пластина = список об'єктів
@@ -358,11 +358,10 @@ def build_project(name, spec, tz, base_settings):
         model_parts[path.lstrip("/")] = mesh_xml(meshes)
         if vlh is not None:
             # банди тонкого шару; висоти — у координатах друку деталі
-            base_h = float(oset.get("layer_height",
-                                    spec["over"]["layer_height"]))
             spans = [(a - lo[2], b - lo[2]) for a, b in vlh["spans_rz"]]
-            vlh_lines.append(vlh_line(i + 1, spans, base_h, vlh["fine"],
-                                      vlh["ramp"], hi[2] - lo[2]))
+            blk = vlh_ranges(i + 1, spans, vlh["fine"], hi[2] - lo[2])
+            if blk:
+                vlh_lines.append(blk)
         tr = "1 0 0 0 1 0 0 0 1 0 0 0"
         objects.append(dict(oid=oid, inner=inner, name=oname,
                             path=path, tr=tr,
@@ -504,9 +503,11 @@ def build_project(name, spec, tz, base_settings):
         z.writestr("Metadata/project_settings.config",
                    json.dumps(settings, indent=4, ensure_ascii=False))
         if vlh_lines:
-            # 21.07: змінний шар (формат PrusaSlicer, читає Студія)
-            z.writestr("Metadata/layer_heights_profile.txt",
-                       "\n".join(vlh_lines) + "\n")
+            # 21.07: height-range модифікатори (формат сейва Студії)
+            z.writestr("Metadata/layer_config_ranges.xml",
+                       '<?xml version="1.0" encoding="utf-8"?>\n'
+                       '<objects>\n' + "\n".join(vlh_lines)
+                       + "\n</objects>")
     extras = []
     if vlh_lines:
         extras.append(f"vlh×{len(vlh_lines)}")
