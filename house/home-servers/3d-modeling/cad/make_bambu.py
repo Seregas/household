@@ -13,10 +13,12 @@ Bambu обмеження: один процес (висота шару) на п�
   • out/print_small.3mf — вставка I/O лицем вниз + КОВПАК LSI задньою
     гранню вниз (16.07), 0.16
 
-База — Metadata/project_settings.config з NAS_tray-fast-petg.3mf
-(робочий PETG-профіль користувача: температури/вентилятори/швидкості
-філамента НЕ чіпаємо, правимо лише процесні ключі + different_settings_
-to_system, інакше Bambu скидає значення до пресетів).
+База — Metadata/project_settings.config з NAS_tray-ams-petg.3mf
+(21.07: свіжий сейв користувача ПІСЛЯ установки AMS —
+extruder_ams_count '1#0|4#1'; робочий PETG-профіль: температури/
+вентилятори/швидкості філамента НЕ чіпаємо, правимо лише процесні
+ключі + different_settings_to_system, інакше Bambu скидає значення
+до пресетів).
 
 21.07 (поки друкується тест №6):
   • ЗМІННИЙ ШАР — Metadata/layer_heights_profile.txt: банди 0.12 на
@@ -40,7 +42,7 @@ import params as P     # cad/ у sys.path при запуску python cad/make_
 
 HERE = Path(__file__).resolve().parent.parent
 TEMPLATE = Path(sys.argv[1]) if len(sys.argv) > 1 \
-    else HERE / "NAS_tray-fast-petg.3mf"
+    else HERE / "NAS_tray-ams-petg.3mf"
 
 # поворот «лицем вниз»: x'=x, y'=-z, z'=y (панель y=-99.4 стає низом)
 FACE_DOWN = (1, 0, 0, 0, 0, 1, 0, -1, 0)
@@ -79,8 +81,13 @@ def plate_origin(i):
 # конвертується відніманням lo[2] (низ деталі → стіл).
 # Корпус: усі 6 рядів снап-сітки (дно друкується РАЗ — майбутні аддони
 # стануть у будь-який ряд); слот ±1.15 + кишеня ±2.0 → півширина 2.2.
+# + постаменти плати (21.07): лежачі циліндри ⌀9 з отвором ⌀4 —
+# тонкий шар кругліше веде отвір (хват M3) і нижню дугу-навіс;
+# півширина 4.7 покриває ⌀9. Y-центри: S2 −83.1, S1 −60.4, S3/S4 71.9.
 VLH_TRAY = {"fine": 0.12,
-            "spans_rz": [(r - 2.2, r + 2.2) for r in P.ANCHOR_ROWS]}
+            "spans_rz": [(r - 2.2, r + 2.2) for r in P.ANCHOR_ROWS] +
+                        [(y - 4.7, y + 4.7) for y in sorted(
+                            {xy[1] for xy in P.STANDOFF_XY.values()})]}
 # Блок: зона Т-пазів (полиці Z5.9, стеля 7.35, верх слаба 8; люфти
 # 0.1/0.15 порівнянні з квантуванням шару 0.2 → тонкий шар критичний)
 VLH_BLOCK = {"fine": 0.12, "spans_rz": [(5.2, 8.2)]}
@@ -95,12 +102,18 @@ def vlh_ranges(idx, spans, fine, height):
     """<object> для Metadata/layer_config_ranges.xml: height-range
     модифікатори одного об'єкта (idx = 1-based порядок у 3dmodel.model);
     формат 1:1 із сейва Студії."""
-    rngs = []
-    for a, b in sorted(spans):
+    merged = []                             # злиття перекритих спанів
+    for a, b in sorted(spans):              # (ряд 71 ∩ постаменти 71.9)
         a = max(a, 0.4)                     # перші шари не чіпаємо
         b = min(b, height - 0.01)
         if b <= a:
             continue
+        if merged and a <= merged[-1][1] + 0.01:
+            merged[-1][1] = max(merged[-1][1], b)
+        else:
+            merged.append([a, b])
+    rngs = []
+    for a, b in merged:
         rngs.append(f'''  <range min_z="{a:.4f}" max_z="{b:.4f}">
    <option opt_key="extruder">0</option>
    <option opt_key="layer_height">{fine}</option>
