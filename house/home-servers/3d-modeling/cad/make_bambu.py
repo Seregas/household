@@ -18,6 +18,15 @@ Bambu обмеження: один процес (висота шару) на п�
 філамента НЕ чіпаємо, правимо лише процесні ключі + different_settings_
 to_system, інакше Bambu скидає значення до пресетів).
 
+21.07 (поки друкується тест №6):
+  • ЗМІННИЙ ШАР — Metadata/layer_heights_profile.txt: банди 0.12 на
+    висотах посадкових кромок (корпус: 6 рядів снап-сітки; блок: Т-пази);
+  • МОДИФІКАТОР «повільний верх» корпусу (modifier_part-куб, z'≥165:
+    outer 50 / inner 80) — менше трясе тонкі плити на верхніх шарах;
+  • travel_acceleration 6000→4000 у проєктах з корпусом;
+  • wall_generator=arachne (користувач перемкнув у Студії, сейв
+    підтвердив — не відкочуємо генерований файлом).
+
 Запуск: .venv/bin/python cad/make_bambu.py [шлях-до-шаблону.3mf]
 """
 import json
@@ -26,6 +35,8 @@ import zipfile
 from pathlib import Path
 
 import trimesh
+
+import params as P     # cad/ у sys.path при запуску python cad/make_bambu.py
 
 HERE = Path(__file__).resolve().parent.parent
 TEMPLATE = Path(sys.argv[1]) if len(sys.argv) > 1 \
@@ -55,6 +66,50 @@ def plate_origin(i):
     плита 3 = (0, -270.35)."""
     return (PLATE_STRIDE * (i % 2), -PLATE_STRIDE * (i // 2))
 
+
+# ── 21.07: ЗМІННИЙ ШАР (variable layer height) ──────────────────────────
+# Банди тонкого шару 0.12 на висотах ПОСАДКОВИХ КРОМОК — точність зубів/
+# полиць зачепів без здорожчання всього друку. spans_rz — у «повернутому»
+# домені (координата, що стає віссю Z друку: model-Y для FACE_DOWN,
+# model-Z для IDENT); у build_project конвертується відніманням lo[2]
+# (низ деталі → стіл). Корпус: усі 6 рядів снап-сітки (дно друкується
+# РАЗ — майбутні аддони стануть у будь-який ряд); слот ±1.15 + кишеня
+# ±2.0 → півширина банди 2.2.
+VLH_TRAY = {"fine": 0.12, "ramp": 1.0,
+            "spans_rz": [(r - 2.2, r + 2.2) for r in P.ANCHOR_ROWS]}
+# Блок: зона Т-пазів (полиці Z5.9, стеля 7.35, верх слаба 8; люфти
+# 0.1/0.15 порівнянні з квантуванням шару 0.2 → тонкий шар критичний)
+VLH_BLOCK = {"fine": 0.12, "ramp": 1.0, "spans_rz": [(5.2, 8.2)]}
+# Модифікатор «повільний верх» корпусу: вище z'=165 (останні ~48 мм
+# друку) периметри повільніше — важіль високої деталі великий, тонкі
+# плити стінок гойдаються, шви верхівки чистіші
+MOD_TOP = {"name": "slow_top", "z0": 165.0,
+           "set": {"outer_wall_speed": "50", "inner_wall_speed": "80"}}
+
+
+def vlh_line(idx, spans, base, fine, ramp, height):
+    """Рядок Metadata/layer_heights_profile.txt для одного об'єкта:
+    object_id=IDX|z;h;z;h;…  (IDX = 1-based ПОРЯДОК об'єкта в
+    3dmodel.model, НЕ XML id — формат успадковано від PrusaSlicer);
+    кусково-лінійна інтерполяція між точками, z від низу деталі."""
+    pts = [(0.0, base)]
+    for a, b in sorted(spans):
+        a = max(a, 0.6)                     # перші шари не чіпаємо
+        b = min(b, height - 0.01)
+        if b <= a:
+            continue
+        pts += [(max(a - ramp, pts[-1][0] + 0.02), base), (a, fine),
+                (b, fine), (min(b + ramp, height), base)]
+    pts.append((height + 1.0, base))
+    vals, lastz = [], -1.0
+    for z, hh in pts:
+        if z <= lastz:                      # строго зростаючі z
+            z = lastz + 0.01
+        lastz = z
+        vals += [z, hh]
+    return f"object_id={idx}|" + ";".join("%.6f" % v for v in vals)
+
+
 # проєкт = список ПЛАСТИН; пластина = список об'єктів
 # (stl, назва, поворот, (dx,dy) від центру пластини, {per-object ключі})
 PROJECTS = {
@@ -64,7 +119,8 @@ PROJECTS = {
         plates=[
             dict(name="Корпус (лицем вниз)", objects=[
                 ("tray.stl", "NAS_tray", FACE_DOWN, (0.0, 0.0),
-                 {"brim_type": "auto_brim", "brim_width": "5"})]),
+                 {"brim_type": "auto_brim", "brim_width": "5",
+                  "_vlh": VLH_TRAY, "_mod": MOD_TOP})]),
             # шар — ПООБ'ЄКТНО (глобальний 0.24 під корпус); пластину
             # перерозкладено 15.07: панель-аддон 41×89 (лицем вниз) не
             # вміщалась на місці старої вставки 41×71
@@ -92,27 +148,32 @@ PROJECTS = {
                 ("ssd_block.stl", "SSD_block", IDENT, (0.0, 0.0),
                  {"layer_height": "0.2",
                   "sparse_infill_density": "13%",
-                  "sparse_infill_pattern": "gyroid"})]),
+                  "sparse_infill_pattern": "gyroid",
+                  "_vlh": VLH_BLOCK})]),
         ],
+        # travel 6000→4000 (21.07): на 213 мм висоти ривки переміщень
+        # гойдають корпус — травель повільніше, друк-швидкості ті самі
         over={"layer_height": "0.24", "wall_loops": "2",
               "sparse_infill_density": "8%",
               "sparse_infill_pattern": "grid",
               "brim_type": "no_brim",
               "default_acceleration": "6000",
-              "travel_acceleration": "6000"},
+              "travel_acceleration": "4000"},
     ),
     "print_tray": dict(
         plates=[dict(name="Корпус (лицем вниз)", objects=[
-            ("tray.stl", "NAS_tray", FACE_DOWN, (0.0, 0.0), {})])],
+            ("tray.stl", "NAS_tray", FACE_DOWN, (0.0, 0.0),
+             {"_vlh": VLH_TRAY, "_mod": MOD_TOP})])],
         over={"layer_height": "0.24", "wall_loops": "2",
               "sparse_infill_density": "8%",
               "sparse_infill_pattern": "grid",
               "default_acceleration": "6000",
-              "travel_acceleration": "6000"},
+              "travel_acceleration": "4000"},
     ),
     "print_block": dict(
         plates=[dict(name="SSD блок (дном вниз)", objects=[
-            ("ssd_block.stl", "SSD_block", IDENT, (0.0, 0.0), {})])],
+            ("ssd_block.stl", "SSD_block", IDENT, (0.0, 0.0),
+             {"_vlh": VLH_BLOCK})])],
         over={"layer_height": "0.2", "wall_loops": "2",
               "sparse_infill_density": "13%",
               "sparse_infill_pattern": "gyroid",
@@ -183,19 +244,22 @@ COMMON = {"reduce_crossing_wall": "1",   # 10.07: travel об'їжджає
           "precise_outer_wall": "1",
           "seam_position": "back",
           "bridge_speed": "28",
+          # 21.07: Арахне — користувач перемкнув у Студії (сейв
+          # підтвердив), тест №6 друкувався ним; не відкочуємо
+          "wall_generator": "arachne",
           "initial_layer_print_height": "0.2"}
 
 
-def mesh_xml(m, obj_uuid, inner_id):
-    v = "\n".join('    <vertex x="%.4f" y="%.4f" z="%.4f"/>' % tuple(p)
-                  for p in m.vertices)
-    t = "\n".join('    <triangle v1="%d" v2="%d" v3="%d"/>' % tuple(f)
-                  for f in m.faces)
-    return f'''<?xml version="1.0" encoding="UTF-8"?>
-<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" requiredextensions="p">
- <metadata name="BambuStudio:3mfVersion">1</metadata>
- <resources>
-  <object id="{inner_id}" p:UUID="{obj_uuid}" type="model">
+def mesh_xml(meshes):
+    """XML файлу object_NNN.model. meshes = [(inner_id, uuid, mesh), …] —
+    21.07: кілька <object> в одному файлі (mesh деталі + куб-модифікатор)."""
+    objs = []
+    for inner_id, obj_uuid, m in meshes:
+        v = "\n".join('    <vertex x="%.4f" y="%.4f" z="%.4f"/>' % tuple(p)
+                      for p in m.vertices)
+        t = "\n".join('    <triangle v1="%d" v2="%d" v3="%d"/>' % tuple(f)
+                      for f in m.faces)
+        objs.append(f'''  <object id="{inner_id}" p:UUID="{obj_uuid}" type="model">
    <mesh>
    <vertices>
 {v}
@@ -204,7 +268,13 @@ def mesh_xml(m, obj_uuid, inner_id):
 {t}
    </triangles>
    </mesh>
-  </object>
+  </object>''')
+    body = "\n".join(objs)
+    return f'''<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" requiredextensions="p">
+ <metadata name="BambuStudio:3mfVersion">1</metadata>
+ <resources>
+{body}
  </resources>
  <build/>
 </model>
@@ -237,7 +307,11 @@ def build_project(name, spec, tz, base_settings):
     objects, rels, model_parts = [], [], {}
     flat = [(pi, ob) for pi, plate in enumerate(spec["plates"])
             for ob in plate["objects"]]
+    vlh_lines = []
     for i, (plate_i, (stl, oname, rot, (dx, dy), oset)) in enumerate(flat):
+        oset = dict(oset)               # 21.07: службові ключі — геть
+        vlh = oset.pop("_vlh", None)    # з per-object metadata
+        mod = oset.pop("_mod", None)
         m = trimesh.load(HERE / "out" / stl)
         oid = 2 + i
         inner = 100 + oid                     # id меша всередині файлу:
@@ -262,22 +336,58 @@ def build_project(name, spec, tz, base_settings):
             -lo[2]])
         m = trimesh.Trimesh(vertices=vv + shift, faces=m.faces,
                             process=False)
-        model_parts[path.lstrip("/")] = mesh_xml(m, inner_uuid, inner)
-        tr = "1 0 0 0 1 0 0 0 1 0 0 0" 
+        meshes = [(inner, inner_uuid, m)]
+        mod_part = None
+        if mod is not None:
+            # куб-модифікатор поверх деталі: від z0 до верху (+5), із
+            # запасом 5 мм по XY — «повільний верх» лише швидкостями,
+            # без окремого об'єкта на пластині
+            b0, b1 = m.bounds
+            ext = (b1[0] - b0[0] + 10.0, b1[1] - b0[1] + 10.0,
+                   b1[2] + 5.0 - mod["z0"])
+            cube = trimesh.creation.box(extents=ext)
+            cube.apply_translation([(b0[0] + b1[0]) / 2,
+                                    (b0[1] + b1[1]) / 2,
+                                    mod["z0"] + ext[2] / 2])
+            mod_part = dict(
+                inner=inner + 500,
+                uuid=f"00{oid}91000-81cb-4c03-9d28-80fed5dfa1dc",
+                comp_uuid=f"00{oid}91000-b206-40ff-9872-83e8017abed1",
+                name=mod["name"], set=mod["set"], faces=len(cube.faces))
+            meshes.append((mod_part["inner"], mod_part["uuid"], cube))
+        model_parts[path.lstrip("/")] = mesh_xml(meshes)
+        if vlh is not None:
+            # банди тонкого шару; висоти — у координатах друку деталі
+            base_h = float(oset.get("layer_height",
+                                    spec["over"]["layer_height"]))
+            spans = [(a - lo[2], b - lo[2]) for a, b in vlh["spans_rz"]]
+            vlh_lines.append(vlh_line(i + 1, spans, base_h, vlh["fine"],
+                                      vlh["ramp"], hi[2] - lo[2]))
+        tr = "1 0 0 0 1 0 0 0 1 0 0 0"
         objects.append(dict(oid=oid, inner=inner, name=oname,
                             path=path, tr=tr,
                             faces=len(m.faces), obj_uuid=obj_uuid,
                             comp_uuid=comp_uuid, item_uuid=item_uuid,
-                            oset=oset, plate=plate_i))
+                            oset=oset, plate=plate_i, mod=mod_part))
         rels.append(
             f'<Relationship Target="{path}" Id="rel-obj-{oid}" '
             'Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/'
             '3dmodel"/>')
 
+    def comps(o):
+        c = [f'    <component p:path="{o["path"]}" objectid="{o["inner"]}"'
+             f' p:UUID="{o["comp_uuid"]}" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>']
+        if o["mod"]:
+            c.append(f'    <component p:path="{o["path"]}"'
+                     f' objectid="{o["mod"]["inner"]}"'
+                     f' p:UUID="{o["mod"]["comp_uuid"]}"'
+                     ' transform="1 0 0 0 1 0 0 0 1 0 0 0"/>')
+        return "\n".join(c)
+
     res = "\n".join(
         f'''  <object id="{o["oid"]}" p:UUID="{o["obj_uuid"]}" type="model">
    <components>
-    <component p:path="{o["path"]}" objectid="{o["inner"]}" p:UUID="{o["comp_uuid"]}" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>
+{comps(o)}
    </components>
   </object>''' for o in objects)
     items = "\n".join(
@@ -296,19 +406,35 @@ def build_project(name, spec, tz, base_settings):
  </build>
 </model>
 '''
-    obj_meta = "\n".join(f'''  <object id="{o["oid"]}">
-    <metadata key="name" value="{o["name"]}"/>
-    <metadata key="extruder" value="1"/>
-{"".join(chr(10).join(f'    <metadata key="{k}" value="{v}"/>' for k, v in o["oset"].items()) + chr(10) if o["oset"] else "")}
-    <metadata face_count="{o["faces"]}"/>
-    <part id="1" subtype="normal_part">
+    def parts_meta(o):
+        p = [f'''    <part id="1" subtype="normal_part">
       <metadata key="name" value="{o["name"]}"/>
       <metadata key="matrix" value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"/>
       <metadata key="source_file" value="{o["name"]}.stl"/>
       <metadata key="source_object_id" value="0"/>
       <metadata key="source_volume_id" value="0"/>
       <mesh_stat face_count="{o["faces"]}" edges_fixed="0" degenerate_facets="0" facets_removed="0" facets_reversed="0" backwards_edges="0"/>
-    </part>
+    </part>''']
+        if o["mod"]:
+            # 21.07: modifier_part — невідомі ключі part-metadata Студія
+            # кладе у volume config (підтверджено сейвом користувача:
+            # per-object scalar overrides працюють так само)
+            mset = "\n".join(f'      <metadata key="{k}" value="{v}"/>'
+                             for k, v in o["mod"]["set"].items())
+            p.append(f'''    <part id="2" subtype="modifier_part">
+      <metadata key="name" value="{o["mod"]["name"]}"/>
+      <metadata key="matrix" value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"/>
+{mset}
+      <mesh_stat face_count="{o["mod"]["faces"]}" edges_fixed="0" degenerate_facets="0" facets_removed="0" facets_reversed="0" backwards_edges="0"/>
+    </part>''')
+        return "\n".join(p)
+
+    obj_meta = "\n".join(f'''  <object id="{o["oid"]}">
+    <metadata key="name" value="{o["name"]}"/>
+    <metadata key="extruder" value="1"/>
+{"".join(chr(10).join(f'    <metadata key="{k}" value="{v}"/>' for k, v in o["oset"].items()) + chr(10) if o["oset"] else "")}
+    <metadata face_count="{o["faces"]}"/>
+{parts_meta(o)}
   </object>''' for o in objects)
     n_plates = len(spec["plates"])
     plates_meta = []
@@ -374,7 +500,18 @@ def build_project(name, spec, tz, base_settings):
         z.writestr("Metadata/model_settings.config", model_cfg)
         z.writestr("Metadata/project_settings.config",
                    json.dumps(settings, indent=4, ensure_ascii=False))
-    print(f"  {out.name}: пластин {n_plates}, об'єктів {len(objects)}, шар {settings['layer_height']}")
+        if vlh_lines:
+            # 21.07: змінний шар (формат PrusaSlicer, читає Студія)
+            z.writestr("Metadata/layer_heights_profile.txt",
+                       "\n".join(vlh_lines) + "\n")
+    extras = []
+    if vlh_lines:
+        extras.append(f"vlh×{len(vlh_lines)}")
+    if any(o["mod"] for o in objects):
+        extras.append("mod slow_top")
+    print(f"  {out.name}: пластин {n_plates}, об'єктів {len(objects)}, "
+          f"шар {settings['layer_height']}"
+          + (f" [{', '.join(extras)}]" if extras else ""))
 
 
 if __name__ == "__main__":
