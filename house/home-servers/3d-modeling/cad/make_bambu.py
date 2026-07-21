@@ -84,10 +84,32 @@ def plate_origin(i):
 # + постаменти плати (21.07): лежачі циліндри ⌀9 з отвором ⌀4 —
 # тонкий шар кругліше веде отвір (хват M3) і нижню дугу-навіс;
 # півширина 4.7 покриває ⌀9. Y-центри: S2 −83.1, S1 −60.4, S3/S4 71.9.
+# МОСТИ ВИКЛЮЧЕНІ (probe_zones 21.07): верхні кромки RAM-вікон
+# (A y74.9 проліт 74, B y67.9 проліт 34 + на нього сідає база S3)
+# мають мостити на 0.24 — тонка нитка 0.12 провисає; band ріжеться.
+_BRIDGE_EXCL = [(w["y"][1] - 0.2, w["y"][1] + 1.2)
+                for w in P.RAM_KEEPOUT.values()]
+
+
+def _cut_spans(spans, excl):
+    """Відняти виключення (мости) від спанів тонкого шару."""
+    out = []
+    for a, b in spans:
+        segs = [(a, b)]
+        for ea, eb in excl:
+            segs = [s for lo, hi in segs
+                    for s in ((lo, min(hi, ea)), (max(lo, eb), hi))
+                    if s[1] - s[0] > 0.3]
+        out += segs
+    return out
+
+
 VLH_TRAY = {"fine": 0.12,
-            "spans_rz": [(r - 2.2, r + 2.2) for r in P.ANCHOR_ROWS] +
-                        [(y - 4.7, y + 4.7) for y in sorted(
-                            {xy[1] for xy in P.STANDOFF_XY.values()})]}
+            "spans_rz": _cut_spans(
+                [(r - 2.2, r + 2.2) for r in P.ANCHOR_ROWS] +
+                [(y - 4.7, y + 4.7) for y in sorted(
+                    {xy[1] for xy in P.STANDOFF_XY.values()})],
+                _BRIDGE_EXCL)}
 # Блок: зона Т-пазів (полиці Z5.9, стеля 7.35, верх слаба 8; люфти
 # 0.1/0.15 порівнянні з квантуванням шару 0.2 → тонкий шар критичний)
 VLH_BLOCK = {"fine": 0.12, "spans_rz": [(5.2, 8.2)]}
