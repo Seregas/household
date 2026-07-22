@@ -29,6 +29,14 @@ extruder_ams_count '1#0|4#1'; робочий PETG-профіль: темпера
   • wall_generator=arachne (користувач перемкнув у Студії, сейв
     підтвердив — не відкочуємо генерований файлом).
 
+22.07 (після друку шматка дна):
+  • АНТИ-СТРІНГ у всі проєкти (apply_anti_string): 245° + ретракція
+    1.2 (wipe вже був) — волосінь пережила сушку 38→11% і 250°;
+  • МОДИФІКАТОР «повільне дно» корпусу (MOD_FLOOR, zmodel −1..11):
+    у FACE_DOWN плита дна = вертикальний слаб, стінки сот = леза 2 мм,
+    «площина рухається за головкою» → outer 40 / inner 60;
+  • _mod тепер список (кілька modifier_part на об'єкт).
+
 Запуск: .venv/bin/python cad/make_bambu.py [шлях-до-шаблону.3mf]
 """
 import json
@@ -129,6 +137,14 @@ VLH_BLOCK = {"fine": 0.12, "spans_rz": [(5.2, 8.2)]}
 # плити стінок гойдаються, шви верхівки чистіші
 MOD_TOP = {"name": "slow_top", "z0": 165.0,
            "set": {"outer_wall_speed": "50", "inner_wall_speed": "80"}}
+# 22.07: «повільне дно» — у FACE_DOWN плита дна (модельний Z0..8: мембрана
+# +соти+корона+трамплін) = вертикальний слаб, стінки сот — тонкі леза
+# 2 мм, «площина рухається за головкою» (друк шматка дна: шершаві
+# стінки). Бокс у МОДЕЛЬНИХ координатах (zmodel), обертається разом з
+# деталлю; лише швидкості периметрів (fan — філаментний, per-modifier
+# не буває)
+MOD_FLOOR = {"name": "slow_floor", "zmodel": (-1.0, 11.0),
+             "set": {"outer_wall_speed": "40", "inner_wall_speed": "60"}}
 
 
 def vlh_ranges(idx, spans, fine, height):
@@ -166,7 +182,7 @@ PROJECTS = {
             dict(name="Корпус (лицем вниз)", objects=[
                 ("tray.stl", "NAS_tray", FACE_DOWN, (0.0, 0.0),
                  {"brim_type": "auto_brim", "brim_width": "5",
-                  "_vlh": VLH_TRAY, "_mod": MOD_TOP})]),
+                  "_vlh": VLH_TRAY, "_mod": [MOD_TOP, MOD_FLOOR]})]),
             # шар — ПООБ'ЄКТНО (глобальний 0.24 під корпус); пластину
             # перерозкладено 15.07: панель-аддон 41×89 (лицем вниз) не
             # вміщалась на місці старої вставки 41×71
@@ -210,7 +226,7 @@ PROJECTS = {
     "print_tray": dict(
         plates=[dict(name="Корпус (лицем вниз)", objects=[
             ("tray.stl", "NAS_tray", FACE_DOWN, (0.0, 0.0),
-             {"_vlh": VLH_TRAY, "_mod": MOD_TOP})])],
+             {"_vlh": VLH_TRAY, "_mod": [MOD_TOP, MOD_FLOOR]})])],
         over={"layer_height": "0.24", "wall_loops": "2",
               "sparse_infill_density": "8%",
               "sparse_infill_pattern": "grid",
@@ -328,6 +344,31 @@ def mesh_xml(meshes):
 '''
 
 
+def apply_anti_string(s):
+    """22.07: анти-стрінг у ВСІ проєкти (вибір користувача після друку
+    шматка дна — волосінь лишилась ПІСЛЯ сушки в AMS 38→11% і 250°):
+      • nozzle_temperature 255→245 (＋initial_layer) — філаментні ключі,
+        diffs-слот [1] (свідомий виняток із правила «філамент не
+        чіпаємо», з дозволу користувача);
+      • retraction_length 0.8→1.2 — принтерний ключ, diffs-слот [2];
+        міняємо ЛИШЕ записи '0.8' (решта '2' — інші конфігурації сопла);
+      • wipe у шаблоні ВЖЕ '1' (wipe_distance 2) — нічого не робимо.
+    different_settings_to_system = [process, filament, printer]
+    (1 філамент у шаблоні)."""
+    ch_fil, ch_prn = [], []
+    for k in ("nozzle_temperature", "nozzle_temperature_initial_layer"):
+        s[k] = ["245"] * len(s[k])
+        ch_fil.append(k)
+    s["retraction_length"] = ["1.2" if v == "0.8" else v
+                              for v in s["retraction_length"]]
+    ch_prn.append("retraction_length")
+    diffs = s["different_settings_to_system"]
+    for idx, ch in ((1, ch_fil), (2, ch_prn)):
+        have = set(diffs[idx].split(";")) if diffs[idx] else set()
+        diffs[idx] = ";".join(sorted(have | set(ch)))
+    return s
+
+
 def apply_overrides(settings, over):
     s = json.loads(json.dumps(settings))          # deep copy
     changed = []
@@ -358,7 +399,9 @@ def build_project(name, spec, tz, base_settings):
     for i, (plate_i, (stl, oname, rot, (dx, dy), oset)) in enumerate(flat):
         oset = dict(oset)               # 21.07: службові ключі — геть
         vlh = oset.pop("_vlh", None)    # з per-object metadata
-        mod = oset.pop("_mod", None)
+        mods = oset.pop("_mod", None)   # 22.07: один mod або список
+        if isinstance(mods, dict):
+            mods = [mods]
         m = trimesh.load(HERE / "out" / stl)
         oid = 2 + i
         inner = 100 + oid                     # id меша всередині файлу:
@@ -374,6 +417,7 @@ def build_project(name, spec, tz, base_settings):
         # не залежить від конвенції
         import numpy as np
         R = np.array(rot, float).reshape(3, 3)
+        mb0, mb1 = m.bounds             # 22.07: модельні межі ДО повороту
         vv = m.vertices @ R
         lo, hi = vv.min(0), vv.max(0)
         px, py = plate_origin(plate_i)
@@ -384,24 +428,39 @@ def build_project(name, spec, tz, base_settings):
         m = trimesh.Trimesh(vertices=vv + shift, faces=m.faces,
                             process=False)
         meshes = [(inner, inner_uuid, m)]
-        mod_part = None
-        if mod is not None:
-            # куб-модифікатор поверх деталі: від z0 до верху (+5), із
-            # запасом 5 мм по XY — «повільний верх» лише швидкостями,
-            # без окремого об'єкта на пластині
-            b0, b1 = m.bounds
-            ext = (b1[0] - b0[0] + 10.0, b1[1] - b0[1] + 10.0,
-                   b1[2] + 5.0 - mod["z0"])
-            cube = trimesh.creation.box(extents=ext)
-            cube.apply_translation([(b0[0] + b1[0]) / 2,
-                                    (b0[1] + b1[1]) / 2,
-                                    mod["z0"] + ext[2] / 2])
+        mod_parts = []
+        for j, mod in enumerate(mods or []):
+            # куб-модифікатор поверх деталі — лише швидкості, без
+            # окремого об'єкта на пластині. Два режими (22.07):
+            #  • z0 — від висоти друку z0 до верху («повільний верх»);
+            #  • zmodel — Z-діапазон у МОДЕЛЬНИХ координатах, куб
+            #    обертається тим самим R + shift, що й деталь
+            #    («повільне дно»: плита дна у FACE_DOWN = верт. слаб)
+            if "zmodel" in mod:
+                z0m, z1m = mod["zmodel"]
+                ext = (mb1[0] - mb0[0] + 10.0, mb1[1] - mb0[1] + 10.0,
+                       z1m - z0m)
+                cube = trimesh.creation.box(extents=ext)
+                cube.apply_translation([(mb0[0] + mb1[0]) / 2,
+                                        (mb0[1] + mb1[1]) / 2,
+                                        (z0m + z1m) / 2])
+                cube = trimesh.Trimesh(vertices=cube.vertices @ R + shift,
+                                       faces=cube.faces, process=False)
+            else:
+                b0, b1 = m.bounds
+                ext = (b1[0] - b0[0] + 10.0, b1[1] - b0[1] + 10.0,
+                       b1[2] + 5.0 - mod["z0"])
+                cube = trimesh.creation.box(extents=ext)
+                cube.apply_translation([(b0[0] + b1[0]) / 2,
+                                        (b0[1] + b1[1]) / 2,
+                                        mod["z0"] + ext[2] / 2])
             mod_part = dict(
-                inner=inner + 500,
-                uuid=f"00{oid}91000-81cb-4c03-9d28-80fed5dfa1dc",
-                comp_uuid=f"00{oid}91000-b206-40ff-9872-83e8017abed1",
+                inner=inner + 500 + 10 * j,
+                uuid=f"00{oid}9{1 + j}000-81cb-4c03-9d28-80fed5dfa1dc",
+                comp_uuid=f"00{oid}9{1 + j}000-b206-40ff-9872-83e8017abed1",
                 name=mod["name"], set=mod["set"], faces=len(cube.faces))
             meshes.append((mod_part["inner"], mod_part["uuid"], cube))
+            mod_parts.append(mod_part)
         model_parts[path.lstrip("/")] = mesh_xml(meshes)
         if vlh is not None:
             # банди тонкого шару; висоти — у координатах друку деталі
@@ -414,7 +473,7 @@ def build_project(name, spec, tz, base_settings):
                             path=path, tr=tr,
                             faces=len(m.faces), obj_uuid=obj_uuid,
                             comp_uuid=comp_uuid, item_uuid=item_uuid,
-                            oset=oset, plate=plate_i, mod=mod_part))
+                            oset=oset, plate=plate_i, mods=mod_parts))
         rels.append(
             f'<Relationship Target="{path}" Id="rel-obj-{oid}" '
             'Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/'
@@ -423,10 +482,10 @@ def build_project(name, spec, tz, base_settings):
     def comps(o):
         c = [f'    <component p:path="{o["path"]}" objectid="{o["inner"]}"'
              f' p:UUID="{o["comp_uuid"]}" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>']
-        if o["mod"]:
+        for mp in o["mods"]:
             c.append(f'    <component p:path="{o["path"]}"'
-                     f' objectid="{o["mod"]["inner"]}"'
-                     f' p:UUID="{o["mod"]["comp_uuid"]}"'
+                     f' objectid="{mp["inner"]}"'
+                     f' p:UUID="{mp["comp_uuid"]}"'
                      ' transform="1 0 0 0 1 0 0 0 1 0 0 0"/>')
         return "\n".join(c)
 
@@ -464,17 +523,17 @@ def build_project(name, spec, tz, base_settings):
       <metadata key="source_volume_id" value="0"/>
       <mesh_stat face_count="{o["faces"]}" edges_fixed="0" degenerate_facets="0" facets_removed="0" facets_reversed="0" backwards_edges="0"/>
     </part>''']
-        if o["mod"]:
+        for mp in o["mods"]:
             # 21.07: modifier_part — невідомі ключі part-metadata Студія
             # кладе у volume config (підтверджено сейвом користувача:
             # per-object scalar overrides працюють так само)
             mset = "\n".join(f'      <metadata key="{k}" value="{v}"/>'
-                             for k, v in o["mod"]["set"].items())
-            p.append(f'''    <part id="{o["mod"]["inner"]}" subtype="modifier_part">
-      <metadata key="name" value="{o["mod"]["name"]}"/>
+                             for k, v in mp["set"].items())
+            p.append(f'''    <part id="{mp["inner"]}" subtype="modifier_part">
+      <metadata key="name" value="{mp["name"]}"/>
       <metadata key="matrix" value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"/>
 {mset}
-      <mesh_stat face_count="{o["mod"]["faces"]}" edges_fixed="0" degenerate_facets="0" facets_removed="0" facets_reversed="0" backwards_edges="0"/>
+      <mesh_stat face_count="{mp["faces"]}" edges_fixed="0" degenerate_facets="0" facets_removed="0" facets_reversed="0" backwards_edges="0"/>
     </part>''')
         return "\n".join(p)
 
@@ -516,7 +575,8 @@ def build_project(name, spec, tz, base_settings):
   </assemble>
 </config>
 '''
-    settings = apply_overrides(base_settings, {**COMMON, **spec["over"]})
+    settings = apply_anti_string(
+        apply_overrides(base_settings, {**COMMON, **spec["over"]}))
 
     out = HERE / "out" / f"{name}.3mf"
     with zipfile.ZipFile(TEMPLATE) as z:
@@ -558,8 +618,9 @@ def build_project(name, spec, tz, base_settings):
     extras = []
     if vlh_lines:
         extras.append(f"vlh×{len(vlh_lines)}")
-    if any(o["mod"] for o in objects):
-        extras.append("mod slow_top")
+    mod_names = [mp["name"] for o in objects for mp in o["mods"]]
+    if mod_names:
+        extras.append("mod " + "+".join(mod_names))
     print(f"  {out.name}: пластин {n_plates}, об'єктів {len(objects)}, "
           f"шар {settings['layer_height']}"
           + (f" [{', '.join(extras)}]" if extras else ""))
