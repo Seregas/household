@@ -37,6 +37,14 @@ extruder_ams_count '1#0|4#1'; робочий PETG-профіль: темпера
     «площина рухається за головкою» → outer 40 / inner 60;
   • _mod тепер список (кілька modifier_part на об'єкт).
 
+22.07 ч.2 (повний друк №1 корпусу ЗУПИНЕНО — перші ромбілі стінок
+задирались, права SSD-стінка деформована ударами сопла):
+  • охолодження: overhang_fan 100, aux fan 40, min layer time 15,
+    240° (apply_anti_string); 2-й ступінь анти-стрінгу: ретракція
+    1.6, retraction_speed 35, wipe_distance 3;
+  • MOD_FLOOR розширено до zmodel −1..22 (накриває перші ряди
+    ромбілів стінок по всій висоті друку).
+
 Запуск: .venv/bin/python cad/make_bambu.py [шлях-до-шаблону.3mf]
 """
 import json
@@ -142,8 +150,13 @@ MOD_TOP = {"name": "slow_top", "z0": 165.0,
 # 2 мм, «площина рухається за головкою» (друк шматка дна: шершаві
 # стінки). Бокс у МОДЕЛЬНИХ координатах (zmodel), обертається разом з
 # деталлю; лише швидкості периметрів (fan — філаментний, per-modifier
-# не буває)
-MOD_FLOOR = {"name": "slow_floor", "zmodel": (-1.0, 11.0),
+# не буває).
+# 22.07 ч.2 (повний друк №1 зупинено): верх 11→22 — ПЕРШІ РЯДИ РОМБІЛІВ
+# стінок (поле від Z6) задиралися: стелі вікон = міні-мости в одну
+# стінку + кут стінка↔дно, сопло чіпляло задерті кромки → бульби →
+# деформація правої (SSD) стінки. Куб накриває дно + перші ромбілі по
+# всій висоті друку (у FACE_DOWN — вертикальна плита y'≈5..22)
+MOD_FLOOR = {"name": "slow_floor", "zmodel": (-1.0, 22.0),
              "set": {"outer_wall_speed": "40", "inner_wall_speed": "60"}}
 
 
@@ -345,23 +358,42 @@ def mesh_xml(meshes):
 
 
 def apply_anti_string(s):
-    """22.07: анти-стрінг у ВСІ проєкти (вибір користувача після друку
-    шматка дна — волосінь лишилась ПІСЛЯ сушки в AMS 38→11% і 250°):
-      • nozzle_temperature 255→245 (＋initial_layer) — філаментні ключі,
-        diffs-слот [1] (свідомий виняток із правила «філамент не
-        чіпаємо», з дозволу користувача);
-      • retraction_length 0.8→1.2 — принтерний ключ, diffs-слот [2];
-        міняємо ЛИШЕ записи '0.8' (решта '2' — інші конфігурації сопла);
-      • wipe у шаблоні ВЖЕ '1' (wipe_distance 2) — нічого не робимо.
-    different_settings_to_system = [process, filament, printer]
-    (1 філамент у шаблоні)."""
+    """22.07: анти-стрінг + охолодження у ВСІ проєкти.
+    Ч.1 (після друку шматка дна — волосінь пережила сушку 38→11% і 250°):
+      245° + ретракція 0.8→1.2.
+    Ч.2 (повний друк №1 ЗУПИНЕНО: перші ромбілі стінок задирались,
+    права SSD-стінка деформована; + «все одно трохи тягнеться»):
+      • nozzle_temperature 245→240 (＋initial_layer) — менше сочіння;
+      • overhang_fan_speed 90→100 — стелі вікон ромбілів = міні-мости
+        в одну стінку, їх задирало без повного обдуву;
+      • additional_cooling_fan_speed 0→40 — aux-вентилятор X2D:
+        постійний бічний потік на тонкі леза стінок;
+      • slow_down_layer_time 12→15 — після h≈8.5 переріз малий,
+        шар швидкий → PETG не встигає тверднути;
+      • retraction_length 1.2→1.6, retraction_speed 30→35,
+        wipe_distance 2→3 — 2-й ступінь анти-стрінгу.
+    Філаментні ключі — diffs-слот [1] (свідомий виняток із правила
+    «філамент не чіпаємо», з дозволу користувача); принтерні —
+    слот [2], міняємо ЛИШЕ записи робочих конфігурацій сопла
+    (retraction_length '0.8', retraction_speed '30' — решта записи
+    інших сопел). different_settings_to_system = [process, filament,
+    printer]."""
     ch_fil, ch_prn = [], []
     for k in ("nozzle_temperature", "nozzle_temperature_initial_layer"):
-        s[k] = ["245"] * len(s[k])
+        s[k] = ["240"] * len(s[k])
         ch_fil.append(k)
-    s["retraction_length"] = ["1.2" if v == "0.8" else v
+    for k, val in (("overhang_fan_speed", "100"),
+                   ("additional_cooling_fan_speed", "40"),
+                   ("slow_down_layer_time", "15")):
+        s[k] = [val] * len(s[k])
+        ch_fil.append(k)
+    s["retraction_length"] = ["1.6" if v == "0.8" else v
                               for v in s["retraction_length"]]
-    ch_prn.append("retraction_length")
+    s["retraction_speed"] = ["35" if v == "30" else v
+                             for v in s["retraction_speed"]]
+    s["wipe_distance"] = ["3" if v == "2" else v
+                          for v in s["wipe_distance"]]
+    ch_prn += ["retraction_length", "retraction_speed", "wipe_distance"]
     diffs = s["different_settings_to_system"]
     for idx, ch in ((1, ch_fil), (2, ch_prn)):
         have = set(diffs[idx].split(";")) if diffs[idx] else set()
