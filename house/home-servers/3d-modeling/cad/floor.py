@@ -192,11 +192,15 @@ def plan_geometry():
     # межі дає сам pocket_region (zone.buffer(-2.0) нижче)
     if iso_hexes:
         zone = zone.union(unary_union(iso_hexes).intersection(solid))
-    # 17.07: трим «дзьобиків» корони (клин сота↔рама звужується в
-    # гостряк; фідбек ±60.75/−44.88, −86) — вбираємо вістря колом
-    zone = zone.difference(unary_union(
+    # 23.07 («прибери кругляшок»): замість заливати острів суцільним
+    # колом R2 (видима латка) — ПРИТУПЛЮЄМО хвіст кишені малим колом:
+    # верхівка кишені відступає від вертикального ребра, щілина 0.15
+    # закривається і вістря корони зростається з ребром у КОЖНОМУ шарі
+    # FACE_DOWN (підпора знизу через ребро). Кола ріжуться з кишень
+    # нижче, у циклі (pocket_blunt).
+    pocket_blunt = unary_union(
         [sg.Point(x, y).buffer(P.CROWN_TRIM_R, 32)
-         for x, y in P.CROWN_TRIM_XY]))
+         for x, y in P.CROWN_TRIM_XY]) if P.CROWN_TRIM_XY else None
 
     # ── трикутні кишені (6 на комірку, R1), ребра TRI_RIB_W між ними ──
     inset = P.TRI_RIB_W / 2
@@ -232,6 +236,8 @@ def plan_geometry():
             pk = tri.buffer(-(inset + P.HEX_CORNER_R)) \
                     .buffer(P.HEX_CORNER_R, quad_segs=8) \
                     .intersection(pocket_region)
+            if pocket_blunt is not None:
+                pk = pk.difference(pocket_blunt)
             for g in _polys(pk):
                 # 17.07: + фільтр ширини — кишені-СЛІВЕРСИ (<0.9мм) біля
                 # кутів анкерних падів лишали тонкі гачки корони
