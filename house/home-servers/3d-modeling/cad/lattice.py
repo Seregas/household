@@ -32,6 +32,68 @@ def tip_inset():
     return s * math.cos(math.radians(30)) - abs(probe.bounds[0])
 
 
+def _cleanup(field, holes):
+    """Спільні чистки: «циглики» (висячі фрагменти ребер, contacts<=1)
+    і «волосини» (стінки матеріалу < ~0.6мм) вливаються у вирізи."""
+    holes = list(holes)
+    holesU = unary_union(holes)
+    ctx = field.buffer(3.0).difference(holesU)
+    # «циглики»: тонкі висячі фрагменти ребер
+    opened = ctx.buffer(-0.65).buffer(0.65, quad_segs=8)
+    skinny = ctx.difference(opened)
+    for c in _polys(skinny):
+        if c.area >= 10.0 or not c.intersects(field):
+            continue
+        contacts = len(_polys(c.buffer(0.05).intersection(opened)))
+        if contacts <= 1:
+            holes.append(c)
+    # «волосини»: стінки тонші ~0.6мм
+    mat = field.buffer(3.0).difference(unary_union(holes))
+    hair = mat.difference(mat.buffer(-0.4).buffer(0.4, quad_segs=8))
+    holes.extend([c for c in _polys(hair)
+                  if c.area < 5.0 and c.intersects(field)])
+    return holes
+
+
+def iso_holes(field, anchor_u, anchor_v):
+    """Вирізи-трикутники «ферма» (стрейчений ізогрід) у полі field (u,v).
+    23.07: заміна ромбілів на стінках — стелі ромбів у FACE_DOWN були
+    міні-мостами в одну стінку (задирання кінців → сопло розхитує лезо).
+    Геометрія під друк: ВЕРТИКАЛЬНІ ребра вздовж u (модельний Y = вісь
+    друку FACE_DOWN → стоять вертикально) довжиною ISO_A; апекси на
+    сусідніх колонках через ISO_W=ISO_A/2 → діагоналі РІВНО 45° (Δu=Δv)
+    — жодного моста і жодного навісу >45°.
+    anchor_u/anchor_v — прив'язка ґратки (лівий/нижній край поля)."""
+    a = P.ISO_A
+    w = P.ISO_W
+    ero = P.ISO_T / 2 + P.RHOMB_R
+    fu0, fv0, fu1, fv1 = field.bounds
+    ncol = int((fv1 - fv0) / w) + 3
+    nrow = int((fu1 - fu0) / a) + 3
+
+    tris = []
+    for col in range(-1, ncol + 1):
+        v0 = anchor_v + col * w          # база колонки (вертикальна лінія)
+        stag = (col % 2) * a / 2         # стагер вершин через колонку
+        for row in range(-1, nrow + 1):
+            u0 = anchor_u + row * a + stag
+            # правий трикутник: база на v0, апекс на v0+w
+            tR = sg.Polygon([(u0, v0), (u0 + a, v0), (u0 + a / 2, v0 + w)])
+            # лівий (комплементарний): база на v0+w, апекс на v0
+            tL = sg.Polygon([(u0 + a / 2, v0 + w), (u0 + 3 * a / 2, v0 + w),
+                             (u0 + a, v0)])
+            for tri in (tR, tL):
+                if not tri.intersects(field):
+                    continue
+                pk = tri.buffer(-ero).buffer(P.RHOMB_R, quad_segs=8) \
+                        .intersection(field)
+                for g in _polys(pk):
+                    if g.area < 1.5 or g.buffer(-0.45).is_empty:
+                        continue
+                    tris.append(g)
+    return _cleanup(field, tris)
+
+
 def rhombille_holes(field, anchor_u, anchor_v):
     """Вирізи-ромби у полі field (координати (u,v), pointy-top по v).
     anchor_u — лінія, на яку лягають вершини цілих ромбів (tip-align);
@@ -66,21 +128,4 @@ def rhombille_holes(field, anchor_u, anchor_v):
                         continue
                     rhomb.append(g)
 
-    holes = list(rhomb)
-    rhombU = unary_union(rhomb)
-    ctx = field.buffer(3.0).difference(rhombU)
-    # «циглики»: тонкі висячі фрагменти ребер
-    opened = ctx.buffer(-0.65).buffer(0.65, quad_segs=8)
-    skinny = ctx.difference(opened)
-    for c in _polys(skinny):
-        if c.area >= 10.0 or not c.intersects(field):
-            continue
-        contacts = len(_polys(c.buffer(0.05).intersection(opened)))
-        if contacts <= 1:
-            holes.append(c)
-    # «волосини»: стінки тонші ~0.6мм
-    mat = field.buffer(3.0).difference(unary_union(holes))
-    hair = mat.difference(mat.buffer(-0.4).buffer(0.4, quad_segs=8))
-    holes.extend([c for c in _polys(hair)
-                  if c.area < 5.0 and c.intersects(field)])
-    return holes
+    return _cleanup(field, rhomb)

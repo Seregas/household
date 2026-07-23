@@ -214,7 +214,12 @@ def plan_geometry():
                   cx + P.SNAP_SLOT_X / 2 + P.ANCHOR_PAD_RIM,
                   ry + P.SNAP_TOOTH_POCKET_Y + P.ANCHOR_PAD_RIM)
            for cx in P.ANCHOR_COLS for ry in P.ANCHOR_ROWS])
-    pocket_region = zone.buffer(-2.0).difference(base_keep)
+    # 23.07 (друк №2, прогалини під трампліном ПОВЕРНУЛИСЬ): ramp_strip
+    # різав лише СОТИ — наскрізні кишені корони-ізогріду він не чіпав, і
+    # зсув ґратки 22.07 (крок 19.6→20.0) поставив кишені під підошву
+    # дуги. Генеричний фікс: смуга виключається і з зони кишень.
+    pocket_region = zone.buffer(-2.0).difference(base_keep) \
+                        .difference(ramp_strip)
     pockets = []
     for (hx, hy) in cells:
         cell_pts = [(hx + Rcell * math.cos(math.radians(a)),

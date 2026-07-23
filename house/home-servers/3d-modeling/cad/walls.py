@@ -238,15 +238,15 @@ def wall_part(x_outer, thickness_dir, keepouts=()):
     with BuildPart() as wp:
         extrude(Plane.YZ.offset(x_outer) * prof,
                 amount=thickness_dir * P.WALL_T)
-        # rhombille: поле = силует − 2.5 краю (бульнос їсть 1.45) −
-        # плінтус-зона знизу (Z<6)
+        # ізогрід-«ферма» (23.07, було rhombille): поле = силует − 2.5
+        # краю (бульнос їсть 1.45) − плінтус-зона знизу (Z<6)
         S = _silhouette_shapely()
         field = S.buffer(-2.5).difference(
             sg.box(S.bounds[0] - 1, -1, S.bounds[2] + 1, 6.0))
         for ko in keepouts:
             field = field.difference(ko)
-        holes = lattice.rhombille_holes(field, field.bounds[0],
-                                        field.bounds[1])
+        holes = lattice.iso_holes(field, field.bounds[0],
+                                  field.bounds[1])
         if holes:
             with BuildSketch(Plane.YZ.offset(x_outer - thickness_dir)) as hs:
                 for g in holes:
