@@ -5,12 +5,9 @@ io_insert.py — ЗМІННА I/O-ВСТАВКА (09.07, ідея користу
 
 Конструкція (все tool-less):
   • носик = апертура −0.2/бік, товщина 1.4 (лице −0.1 від лиця панелі);
-  • фланець = апертура +1.4/бік, товщина 1.4, сидить у фальці панелі
-    (глибина 1.5, полиця 1.6) — кабелі тиснуть вставку в панель, фланець
-    упирається в дно фальца; у друці FACE_DOWN фланець росте з носика
-    4 підшарами-СХОДИНКАМИ (+0.4 периметра за 0.35 товщини ≈ 45°,
-    23.07 — кільце-навіс 1.6/бік не друкувалось), функціональні зони
-    (язички, губки, язички-підйоми) повнопрофільні в усіх підшарах;
+  • фланець = апертура +1.4/бік, товщина 1.4, СУЦІЛЬНИЙ, сидить у
+    фальці панелі (глибина 1.5, полиця 1.6) — кабелі тиснуть вставку
+    в панель, фланець упирається в дно фальца;
   • знизу 2 ЖОРСТКІ язички (8×1.8) у кишені фальца + «губки» t0.65
     (потоншений низ фланця) ЗА губами фальца — тиск ззовні знизу
     тримає ГЕОМЕТРІЯ (22.07, «панель провалюється всередину»);
@@ -25,7 +22,13 @@ io_insert.py — ЗМІННА I/O-ВСТАВКА (09.07, ідея користу
     качнути верх назад, підняти з-за губ.
 Порти (включно з TF — лише тут, у панелі його нема) — з P.IO_PORTS.
 Запуск: .venv/bin/python cad/io_insert.py  → out/io_insert.step/stl
-Вставка в координатах збірки; друк — лицем вниз.
+Вставка в координатах збірки; друк — ТИЛОМ вниз (23.07, рішення
+користувача): фланець (більший план) лежить на столі першим, носик
+зверху — кільце-навіс фланця 1.6/бік зникає ЗА ПОБУДОВОЮ (сходинки
+23.07 скасовані — вони лише зрізали опору фланця об дно фальца).
+Лишаються дрібні прецедентні консолі: уступ клин-бампа 0.9 на h0.45
+(2-3 шари) і губка t0.65 ~1.1 на h0.75; лице = top-поверхня
+(косметика — опція ironing).
 """
 import math
 from build123d import *
@@ -50,18 +53,16 @@ def _polys(geom):
 
 
 def _plans():
-    """2D-плани (X,Z): (nose, [фланцеві підшари-сходинки])."""
+    """2D-плани (X,Z): (nose, flange) з портами/прорізами вже вирізаними."""
     aper = _rounded(sg.box(P.IO_X[0], P.IO_Z[0], P.IO_X[1], P.IO_Z[1]),
                     P.INS_APER_R)
     nose = aper.buffer(-P.INS_CLEAR, quad_segs=8)
     flange = aper.buffer(P.INS_REBATE_W - P.INS_CLEAR, quad_segs=8)
-    # нижні жорсткі язички — частина фланця (у ВСІХ підшарах повні:
-    # elevated-старт 8×3.4 — прецедент табів, під ними тіло панелі)
-    tabs = [sg.box(xc - P.INS_TAB_W / 2, P.IO_Z[0] - 1.4 - P.INS_TAB_H,
-                   xc + P.INS_TAB_W / 2, P.IO_Z[0])
-            for xc in P.INS_TAB_XC]
-    for tb in tabs:
-        flange = flange.union(tb)
+    # нижні жорсткі язички — частина фланця
+    for xc in P.INS_TAB_XC:
+        flange = flange.union(sg.box(
+            xc - P.INS_TAB_W / 2, P.IO_Z[0] - 1.4 - P.INS_TAB_H,
+            xc + P.INS_TAB_W / 2, P.IO_Z[0]))
 
     # ── пружні пальці зверху: U-прорізи (крізь ОБИДВА шари) ──
     ztop_n = P.IO_Z[1] - P.INS_CLEAR          # верх носика 49.9
@@ -139,42 +140,15 @@ def _plans():
 
     cut_all = ports.union(unary_union(slits + rhomb))
     nose_pl = nose.difference(cut_all)
-
-    # ── фланець → 4 підшари-СХОДИНКИ (23.07, друкованість FACE_DOWN):
-    # суцільний фланець стартував над носиком кільцем-навісом 1.6/бік;
-    # тепер периметр росте на 0.4 за кожні 0.35 товщини (~45°, як
-    # фаска). Функціональні зони повнопрофільні у ВСІХ підшарах:
-    #   • нижні язички (tabs) — elevated-старт 3.4, прецедент;
-    #   • зони губок @ LIP_XC — інакше низ фланця (зачеплення за губи
-    #     панелі) з'являвся б лише в задніх підшарах;
-    #   • язички-підйоми (tab0..tab1) — несуть клин-бамп, що
-    #     закінчується на INS_BUMP_YC: опора мусить бути повною по
-    #     всій глибині фланця, інакше клин повисає ──
-    keep_full = [sg.box(xg - (P.INS_LIP_W + 0.8) / 2, flange.bounds[1],
-                        xg + (P.INS_LIP_W + 0.8) / 2, 5.4)
-                 for xg in P.INS_LIP_XC]
-    keep_full += [sg.box(xd - P.INS_LIP_TAB_W / 2, ztop_n - 1.0,
-                         xd + P.INS_LIP_TAB_W / 2, ztop_f)
-                  for xd in P.INS_DIMPLE_XC]
-    keep_full = unary_union(keep_full + tabs).intersection(flange)
-    steps = []
-    nstep = 4
-    for k in range(nstep):
-        grow = -P.INS_CLEAR + (k + 1) * P.INS_REBATE_W / nstep
-        pl = aper.buffer(grow, quad_segs=8).union(keep_full)
-        steps.append(pl.difference(cut_all).difference(
-            unary_union(lip_gaps)))
-    return nose_pl, steps
+    flange_pl = flange.difference(cut_all).difference(
+        unary_union(lip_gaps))
+    return nose_pl, flange_pl
 
 
 def build():
-    nose_pl, steps = _plans()
-    # носик друкується першим (лице вниз), далі фланцеві підшари від
-    # найменшого (біля носика) до повного (тил) — сходинки ~45°
-    st = P.INS_FLANGE_T / len(steps)
-    layers = [(nose_pl, 97.9, P.INS_NOSE_T)] + \
-        [(pl, 96.5 + (len(steps) - 1 - k) * st, st)
-         for k, pl in enumerate(steps)]
+    nose_pl, flange_pl = _plans()
+    layers = ((flange_pl, 96.5, P.INS_FLANGE_T),   # фланець −96.5…−97.9
+              (nose_pl, 97.9, P.INS_NOSE_T))       # носик  −97.9…−99.3
     with BuildPart() as ins:
         for plan, yoff, t in layers:
             with BuildSketch(Plane.XZ.offset(yoff)) as sk:
@@ -192,12 +166,14 @@ def build():
                                            .coords)[:-1], close=True)
                         make_face(mode=Mode.SUBTRACT)
             extrude(sk.sketch, amount=t)
-        # КЛИН-бампи на верхівках язичків (23.07, друкованість: чверть
-        # циліндра R0.9 у FACE_DOWN нависала за 45°) — той самий робочий
-        # габарит: рампа 45° від (−97.85, ztop_f) до (−96.95, ztop_f+0.9)
+        # КЛИН-бампи на верхівках язичків (23.07; історія: чверть-
+        # циліндр R0.9 → клин 45°) — той самий робочий габарит:
+        # рампа 45° від (−97.85, ztop_f) до (−96.95, ztop_f+0.9)
         # тре по стелі фальца, прямий уступ на INS_BUMP_YC клацає в
         # кишеню панелі (1:1, зачеплення за стелю 51.7 = 0.7); база
-        # втоплена 0.4 у язичок (чистий fuse, не butt-стик)
+        # втоплена 0.4 у язичок (чистий fuse, не butt-стик).
+        # У друці ТИЛОМ вниз уступ = консоль 0.9 на h0.45 (2-3 шари
+        # 0.16) — прецедентний клас (губа панелі 1.15)
         ztop_f = P.IO_Z[1] + P.INS_REBATE_W - P.INS_CLEAR
         for xd in P.INS_DIMPLE_XC:
             y0 = P.INS_BUMP_YC - P.INS_BUMP_R

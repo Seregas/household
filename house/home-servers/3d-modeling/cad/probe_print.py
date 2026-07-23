@@ -23,7 +23,7 @@ ROT_REAR = (1, 0, 0, 0, 0, -1, 0, 1, 0)   # 21.07: фронт-аддон тил�
 # (stl, назва, матриця, висота шару) — рівно як у print_all.3mf
 JOBS = [
     ("out/tray.stl",      "Корпус (лицем вниз)",  FACE_DOWN, 0.24),
-    ("out/io_insert.stl", "Вставка IO",           FACE_DOWN, 0.16),
+    ("out/io_insert.stl", "Вставка IO (тилом вниз)", ROT_REAR, 0.16),
     ("out/addon_clip.stl","Аддон-кліп",           FACE_DOWN, 0.16),
     ("out/snap_clip.stl", "Snap-зачеп (на боці)", ROT_Y90,   0.16),
     ("out/front_fan.stl", "Фронт-аддон fan (тилом вниз)", ROT_REAR, 0.16),

@@ -164,7 +164,9 @@ PROJECTS = {
             # перерозкладено 15.07: панель-аддон 41×89 (лицем вниз) не
             # вміщалась на місці старої вставки 41×71
             dict(name="Вставка IO + защіпки", objects=[
-                ("io_insert.stl", "IO_insert", FACE_DOWN, (0.0, 72.0),
+                # 23.07: ТИЛОМ вниз (ROT_REAR) — фланець на столі,
+                # кільце-навіс над носиком зникає (сходинки скасовані)
+                ("io_insert.stl", "IO_insert", ROT_REAR, (0.0, 72.0),
                  {"layer_height": "0.16", "outer_wall_speed": "50"}),
                 ("addon_clip.stl", "Addon_clip", FACE_DOWN, (10.0, -53.0),
                  {"layer_height": "0.16", "outer_wall_speed": "50"}),
@@ -262,7 +264,7 @@ PROJECTS = {
     ),
     "print_small": dict(
         plates=[dict(name="Вставка IO + защіпки", objects=[
-            ("io_insert.stl", "IO_insert", FACE_DOWN, (-45.0, 0.0), {}),
+            ("io_insert.stl", "IO_insert", ROT_REAR, (-45.0, 0.0), {}),
             ("addon_clip.stl", "Addon_clip", FACE_DOWN, (90.0, 0.0), {}),
             ("snap_clip.stl", "Snap_clip_1", ROT_Y90, (45.0, 40.0),
              {"brim_type": "auto_brim", "brim_width": "3"}),
