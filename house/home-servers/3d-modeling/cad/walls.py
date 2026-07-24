@@ -30,19 +30,22 @@ def _slope():
 
 
 def shoulder_geometry():
-    """УВІГНУТЕ плече R5 (2026-07-03 ФІНАЛ v3, правило v2: стик кромки з
-    панеллю = внутрішній кут → впадина). «Горб» першої ітерації був не від
-    силуету, а від пофрагментного філета гребеня (шви) — вилікувано one-shot."""
+    """13.07: «ВЕЖА» рами замість плеча R8 біля панелі — фронт стінки
+    йде на ПОВНУ висоту панелі (PANEL_H) перші BROW_D мм по Y: панель +
+    брова + вежі обох стінок = замкнена РАМА під важкі плати (Deep
+    mini-ITX 208, задача користувача «з'єднаємо брову і бічні стінки»).
+    Тил вежі = тил брови (EAR_FLANGE_Y+BROW_D=−91.4) — площини
+    продовжуються; брова пірнає у вежі на 0.9 по X → об'ємний union у
+    збірці (не дотичний!). Вниз від тилу вежі — ков R=WALL_SWOOP_R
+    (внутрішній кут → впадина, правило v2) дотично в нахил кромки.
+    (Історія: «плече R8» 03-13.07 — дотик на yf=-96.9 давав верх лише
+    Z78.25, брова висіла в повітрі за 1.5мм НАД стінкою.)"""
     k, c0, n = _slope()
     R = P.WALL_SWOOP_R
-    # дотик на ЗАГЛИБЛЕНІЙ грані (yf=-96.9, клапоть у панелі): раніше
-    # дотик на -96.4 давав сходинку 0.5 у силуеті — ланцюг філета гребеня
-    # обривався на ній, лишаючи клин недоведеного скруглення біля панелі
-    # (фідбек 2026-07-03: -82.01/-96.2/76.33 і симетрично)
-    yf = P.BODY_FRONT_Y - 0.5
-    cy = yf + R
+    yr = P.EAR_FLANGE_Y + P.BROW_D       # тил вежі/брови (−91.4)
+    cy = yr + R
     cz = k * cy + c0 + R * n             # центр ВИЩЕ прямої нахилу
-    t_vert = (yf, cz)                    # дотик на вертикалі (z_start)
+    t_vert = (yr, cz)                    # дотик на ТИЛІ вежі (вертикаль)
     t_slope = (cy + R * k / n, cz - R / n)   # дотик на нахилі
     return t_vert, t_slope, (cy, cz)
 
@@ -76,9 +79,19 @@ def _silhouette_shapely():
     tv, ts, cc = shoulder_geometry()
     ts2, tv2, cc2 = corner_geometry()
     yf = P.BODY_FRONT_Y - 0.5
+    yr = P.EAR_FLANGE_Y + P.BROW_D        # тил вежі (−91.4)
     zt = P.RIDGE_TOP_Z                    # 8.0
     rc = P.REAR_COVE_R                    # 2.0
-    pts = [(yf, 0), tv]                   # дотик тепер на самій yf — без сходинки
+    # 13.07 «вежа»: фронт на повну PANEL_H → горизонталь до тилу брови →
+    # вертикаль вниз до дотику кова (tv) → ков у нахил.
+    # 17.07 ч.3: задній верхній кут вежі скруглено R=BROW_R — рол вежі
+    # = рол брови (той самий циліндр по X, центр (−92.4, 87.75)); був
+    # гострий кант → кліф 0.66 на стику з роллом брови (135.7/-91.45)
+    rB = P.BROW_R
+    cT = (yr - rB, P.PANEL_H - rB)
+    pts = [(yf, 0), (yf, P.PANEL_H), (yr - rB, P.PANEL_H)]
+    pts += _arc_pts(cT, rB, (yr - rB, P.PANEL_H), (yr, P.PANEL_H - rB))
+    pts.append(tv)
     pts += _arc_pts(cc, P.WALL_SWOOP_R, tv, ts)
     pts.append(ts2)
     pts += _arc_pts(cc2, P.WALL_EDGE_CORNER_R, ts2, tv2)
@@ -126,6 +139,7 @@ def _profile_sketch():
     tv, ts, cc1 = shoulder_geometry()
     ts2, tv2, cc2 = corner_geometry()
     yf = P.BODY_FRONT_Y - 0.5
+    yr = P.EAR_FLANGE_Y + P.BROW_D        # тил вежі (−91.4)
     zt = P.RIDGE_TOP_Z
     rc = P.REAR_COVE_R
     ccv = (P.WALL_REAR_Y + rc, zt + rc)
@@ -133,13 +147,23 @@ def _profile_sketch():
     pA = (P.WALL_REAR_Y, zt + rc)
     pB = (P.WALL_REAR_Y + rc, zt)
     pC = (P.WALL_REAR_Y + rc + P.CREST_R, zt - P.CREST_R)
+    # 17.07 ч.3: рол кута вежі R=BROW_R (був гострий, «кульку ставить
+    # OCC» — але брова скруглена R1.0, кулька R1.2 давала кліф 0.66 на
+    # стику; тепер рол вежі = рол брови, той самий циліндр по X)
+    rB = P.BROW_R
+    cT = (yr - rB, P.PANEL_H - rB)
+    pT1 = (yr - rB, P.PANEL_H)
+    pT2 = (yr, P.PANEL_H - rB)
     s1 = _arc_side(tv, ts, cc1, P.WALL_SWOOP_R)
     s2 = _arc_side(ts2, tv2, cc2, P.WALL_EDGE_CORNER_R)
     s3 = _arc_side(pA, pB, ccv, rc)
     s4 = _arc_side(pB, pC, cpr, P.CREST_R)
+    sT = _arc_side(pT1, pT2, cT, rB)
     with BuildSketch() as sk:
         with BuildLine():
-            Polyline((yf, 0), tv)
+            Polyline((yf, 0), (yf, P.PANEL_H), pT1)
+            RadiusArc(pT1, pT2, sT)
+            Line(pT2, tv)
             RadiusArc(tv, ts, s1)
             Line(ts, ts2)
             RadiusArc(ts2, tv2, s2)
@@ -214,15 +238,15 @@ def wall_part(x_outer, thickness_dir, keepouts=()):
     with BuildPart() as wp:
         extrude(Plane.YZ.offset(x_outer) * prof,
                 amount=thickness_dir * P.WALL_T)
-        # rhombille: поле = силует − 2.5 краю (бульнос їсть 1.45) −
-        # плінтус-зона знизу (Z<6)
+        # ізогрід-«ферма» (23.07, було rhombille): поле = силует − 2.5
+        # краю (бульнос їсть 1.45) − плінтус-зона знизу (Z<6)
         S = _silhouette_shapely()
         field = S.buffer(-2.5).difference(
             sg.box(S.bounds[0] - 1, -1, S.bounds[2] + 1, 6.0))
         for ko in keepouts:
             field = field.difference(ko)
-        holes = lattice.rhombille_holes(field, field.bounds[0],
-                                        field.bounds[1])
+        holes = lattice.iso_holes(field, field.bounds[0],
+                                  field.bounds[1])
         if holes:
             with BuildSketch(Plane.YZ.offset(x_outer - thickness_dir)) as hs:
                 for g in holes:
@@ -246,8 +270,11 @@ def wall_part(x_outer, thickness_dir, keepouts=()):
         bb = e.bounding_box()
         if c.Z < 4.0:
             return False
-        if bb.size.Y < 0.05 and bb.size.Z > 3.0:
-            return False                      # вертикалі торців
+        if bb.size.Y < 0.05 and bb.size.Z > 3.0 \
+                and (c.Y < -95.0 or c.Y > 100.0):
+            return False                      # вертикалі торців (13.07:
+            # ЛИШЕ фронт у панелі та зад — тил вежі Y−91.4 МАЄ бути в
+            # ланцюзі, інакше обрив = клин)
         if bb.size.X > 1.0:
             return False                      # поперечки на торцях
         return bnd.distance(sg.Point(c.Y, c.Z)) < 0.3
@@ -286,8 +313,10 @@ def build():
                        P.COOLER_CUT_Y[1], P.COOLER_CUT_Z[1]).buffer(2.0)
     # (09.07: ko_fan ПРИБРАНО — ніші вентилятора в стінці більше нема,
     # вентилятор цілком усередині; ромбілі течуть по всій правій стінці)
-    left = wall_part(P.WALL_L_X, +1, keepouts=(ko_cooler,))
-    right = wall_part(P.WALL_R_X, -1, keepouts=())
+    # 13.07: зона ВЕЖІ (вежа + ков R8) — суцільна, це каркас рами
+    ko_tower = sg.box(-98.0, 66.0, -84.0, 90.0)
+    left = wall_part(P.WALL_L_X, +1, keepouts=(ko_cooler, ko_tower))
+    right = wall_part(P.WALL_R_X, -1, keepouts=(ko_tower,))
 
     cy0, cy1 = P.COOLER_CUT_Y
     cz0, cz1 = P.COOLER_CUT_Z
@@ -297,6 +326,23 @@ def build():
                 RectangleRounded(cy1 - cy0, cz1 - cz0, radius=P.COOLER_CUT_R)
         extrude(amount=P.WALL_T + 2)
     left = (left - cut.part).fix()   # .fix() після вирізу: інакше fuse
+
+    # ── жертовна МЕМБРАНА вирізу кулера (24.07, ідея користувача:
+    # «заповнити отвір — жорсткість збережеться»): у FACE_DOWN стінка =
+    # вертикальне лезо, виріз 85×15 розрізав його на 2 вільні стрічки →
+    # розхитування і падіння якості (друк №3). Мембрана MEM_T у ЦЕНТРІ
+    # товщі з'єднує береги на кожному шарі; перфорація по периметру —
+    # після друку викушується. Містки анкеряться в суцільний обідок 2.0.
+    mem2 = lattice.membrane2d(cy0, cz0, cy1, cz1, P.COOLER_CUT_R)
+    with BuildPart() as memc:
+        with BuildSketch(Plane.YZ.offset(
+                P.WALL_L_X + P.WALL_T / 2 - P.MEM_T / 2)) as ms:
+            for g in lattice._polys(mem2):
+                with BuildLine():
+                    Polyline(*g.exterior.coords)
+                make_face()
+        extrude(ms.sketch, amount=P.MEM_T)
+    left = (left + memc.part).fix()
     if P.PRINT_RIBS:
         # жертовні перемички вирізу кулера: міст 85мм → 3 прольоти по ~28
         with BuildPart() as ribs:
@@ -310,9 +356,10 @@ def build():
         left = left + ribs.part
                                      # мовчки викидає «крихкий» солід
 
-    # (09.07: проріз під вентилятор ВИДАЛЕНИЙ — див. params FAN_X;
-    # гриль/гвинти лишаються в панелі, кріплення — штатні саморізи
-    # Noctua в корпус вентилятора, місток більше не потрібен)
+    # (09.07: проріз під вентилятор ВИДАЛЕНИЙ — 40мм Noctua цілком
+    # усередині; 14.07: гриль з панелі переїхав у ЗМІННУ фронт-вставку
+    # 15.07: вставка → повнорозмірний аддон front_addon.py —
+    # вентилятор гвинтиться до нього, не до корпусу)
     # (09.07: вікно під диск A ВИДАЛЕНЕ разом зі смугою бортика — воно
     # різало її виступ до X132.9; гола плита 134.9 дає диску 0.6 зазору)
     # (08.07 друк №2: дуга кромки вікна ВИДАЛЕНА разом із плінтусом у
@@ -344,8 +391,14 @@ def build():
     Lr, Hr = 12.0, 5.0
     Rr = (Lr * Lr + Hr * Hr) / (2 * Hr)
     ys_ = P.REAR_Y - P.BEAD_W + 2.0 - Lr          # старт дуги (98.5)
+    # 24.07 (друк №3: «три нитки висіли» — кінцевий нахил дуги 45.2° на
+    # межі правила 45°): дуга лише до d=Dr (y=107.8, z=5.789 — ОПОРА
+    # БЛОКА 1:1: низ бази Z6 на y≤107.8 не рухається), далі ПРЯМА-січна
+    # до тої самої верхівки (110.5, 8.0) — нахил 39.3° замість 45.2°.
+    Dr = 9.3
     arcp = [(ys_ + d, 3.0 + Rr - math.sqrt(Rr * Rr - d * d))
-            for d in [Lr * k / 10 for k in range(11)]]
+            for d in [Dr * k / 8 for k in range(9)]]
+    arcp.append((ys_ + Lr, 8.0))
     with BuildPart() as rmp:
         with BuildSketch(Plane.YZ.offset(P.WALL_L_X + P.WALL_T - 0.4)) as rs:
             with BuildLine():
@@ -365,21 +418,37 @@ def build():
                 - (P.WALL_L_X + P.WALL_T - 0.4))
     total = (total + rmp.part).fix()
 
-    # 09.07: ПРОРІЗ у задньому бортику+трампліні під SSD-блок — його
-    # база/полоз/бортики-фіксатори проходять крізь зону заднього краю
-    # («слот вийде за раму — це нічого»); з боків бортик лишається
-    # 09.07 в4: бортик СУЦІЛЬНИЙ (проріз v3 скасовано користувачем);
-    # у задній грані — ПАЗ уздовж бортика: універсальна рейка, за яку
-    # гачки блока/аддонів чіпляються зубами (відгинаючись назад)
-    with BuildPart() as rail:
-        with Locations((sum(P.SNAP_RAIL_X) / 2,
-                        P.REAR_Y - P.SNAP_RAIL_D / 2 + 0.05,
-                        sum(P.SNAP_RAIL_Z) / 2)):
-            Box(P.SNAP_RAIL_X[1] - P.SNAP_RAIL_X[0],
-                P.SNAP_RAIL_D + 0.1,
-                P.SNAP_RAIL_Z[1] - P.SNAP_RAIL_Z[0])
-    total = (total - rail.part).fix()
+    # (20.07: ПАЗ у задній грані бортика ВИДАЛЕНИЙ разом із Г-гачком —
+    # аддони тепер тримають snap-fit зачепи в слотах дна; бортик
+    # суцільний по всій довжині)
 
+    # ── ЗНИЖЕННЯ бортика в зоні плати (13.07): RIDGE_TOP_Z=8.0 >
+    # BOARD_Z=7.55 — довга плата (Deep mini-ITX 208) лягала б на бортик,
+    # не на постаменти. Прогін зрізається до RIDGE_BOARD_Z=7.3; 20.07:
+    # паза/гачків більше нема — зниження їде до RIDGE_LOW_X1=131.5,
+    # правіше (кутовий револьв) і стики зі стінками лишаються Z8.
+    # Різати ПІСЛЯ трампліна — його хвіст сягає Z8 усередині бортика і
+    # теж підрізається. Нові кромки — R1.5.
+    x0c = P.WALL_L_X + P.WALL_T
+    x1c = P.RIDGE_LOW_X1
+    with BuildPart() as lowr:
+        with Locations(((x0c + x1c) / 2, (105.0 + P.REAR_Y + 1) / 2,
+                        (P.RIDGE_BOARD_Z + 9.5) / 2)):
+            Box(x1c - x0c, P.REAR_Y + 1 - 105.0,
+                9.5 - P.RIDGE_BOARD_Z)
+    total = (total - lowr.part).fix()
+    es_l = total.edges().filter_by(
+        lambda e: abs(e.center().Z - P.RIDGE_BOARD_Z) < 0.05
+        and x0c + 0.5 < e.center().X < x1c - 0.5
+        and e.bounding_box().size.X > 5)
+    for r in (1.5, 1.0, 0.6):
+        try:
+            total = total.fillet(r, list(es_l))
+            if r != 1.5:
+                print(f"  (i) кромки зниженого бортика: радіус → {r}")
+            break
+        except Exception:
+            continue
 
     return total
 

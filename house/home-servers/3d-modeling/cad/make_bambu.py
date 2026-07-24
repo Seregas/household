@@ -2,15 +2,58 @@
 make_bambu.py — збирає ГОТОВІ Bambu Studio проєкти (.3mf) з out/*.stl
 з правильними параметрами друку для кожної деталі (10.07).
 
-Bambu обмеження: один процес (висота шару) на проєкт → ТРИ файли:
+Bambu обмеження: один процес (висота шару) на проєкт → файли:
+  • out/print_all.3mf   — ОДИН файл, 3 пластини (пооб'єктний шар)
   • out/print_tray.3mf  — корпус ЛИЦЕМ ВНИЗ, 0.24, без підтримок
   • out/print_block.3mf — SSD-блок дном вниз, 0.2, gyroid 13%
-  • out/print_small.3mf — вставка I/O + LSI-защіпка лицем вниз, 0.16
+  • out/print_test.3mf  — ТЕСТ №4 snap-fit (20.07): test_tray стоячи +
+    test_block + 2 зачепи, бойові орієнтації/шари
+  • out/print_clips.3mf — ЛИШЕ 2 зачепи (в6.3, передрук інтерфейсної
+    деталі: слот дна і Т-паз блока — старі), 0.16 + brim 3
+  • out/print_small.3mf — вставка I/O лицем вниз + КОВПАК LSI задньою
+    гранню вниз (16.07), 0.16
 
-База — Metadata/project_settings.config з NAS_tray-fast-petg.3mf
-(робочий PETG-профіль користувача: температури/вентилятори/швидкості
-філамента НЕ чіпаємо, правимо лише процесні ключі + different_settings_
-to_system, інакше Bambu скидає значення до пресетів).
+База — Metadata/project_settings.config з NAS_tray-ams-petg.3mf
+(21.07: свіжий сейв користувача ПІСЛЯ установки AMS —
+extruder_ams_count '1#0|4#1'; робочий PETG-профіль: температури/
+вентилятори/швидкості філамента НЕ чіпаємо, правимо лише процесні
+ключі + different_settings_to_system, інакше Bambu скидає значення
+до пресетів).
+
+21.07 (поки друкується тест №6):
+  • ЗМІННИЙ ШАР — Metadata/layer_heights_profile.txt: банди 0.12 на
+    висотах посадкових кромок (корпус: 6 рядів снап-сітки; блок: Т-пази);
+  • МОДИФІКАТОР «повільний верх» корпусу (modifier_part-куб, z'≥165:
+    outer 50 / inner 80) — менше трясе тонкі плити на верхніх шарах;
+  • travel_acceleration 6000→4000 у проєктах з корпусом;
+  • wall_generator=arachne (користувач перемкнув у Студії, сейв
+    підтвердив — не відкочуємо генерований файлом).
+
+22.07 (після друку шматка дна):
+  • АНТИ-СТРІНГ у всі проєкти (apply_anti_string): 245° + ретракція
+    1.2 (wipe вже був) — волосінь пережила сушку 38→11% і 250°;
+  • МОДИФІКАТОР «повільне дно» корпусу (MOD_FLOOR, zmodel −1..11):
+    у FACE_DOWN плита дна = вертикальний слаб, стінки сот = леза 2 мм,
+    «площина рухається за головкою» → outer 40 / inner 60;
+  • _mod тепер список (кілька modifier_part на об'єкт).
+
+22.07 ч.2 (повний друк №1 корпусу ЗУПИНЕНО — перші ромбілі стінок
+задирались, права SSD-стінка деформована ударами сопла):
+  • охолодження: overhang_fan 100, aux fan 40, min layer time 15,
+    240° (apply_anti_string); 2-й ступінь анти-стрінгу: ретракція
+    1.6, retraction_speed 35, wipe_distance 3;
+  • MOD_FLOOR розширено до zmodel −1..22 (накриває перші ряди
+    ромбілів стінок по всій висоті друку).
+
+23.07 (повний друк №2 «екстремально погано» — дно видулось,
+артефактні лінії, жахлива якість):
+  • ВІДКАТ переохолодження: 240°→245°, aux fan 40→0 (шаблонний) —
+    саме вони коробили дно і псували адгезію; overhang_fan 100,
+    min layer time 15, ретракція 1.6/35/wipe 3 ЛИШАЮТЬСЯ;
+  • VLH_TRAY і куби slow_top/slow_floor ВИДАЛЕНІ (межі бандів і
+    площини швидкостей = видимі лінії-сходинки); VLH_BLOCK живе;
+    механізм _vlh/_mod у коді лишається (робочий, підтверджений);
+  • проти мостів у стінках тепер ГЕОМЕТРІЯ: ізогрід-«ферма» (walls).
 
 Запуск: .venv/bin/python cad/make_bambu.py [шлях-до-шаблону.3mf]
 """
@@ -21,15 +64,37 @@ from pathlib import Path
 
 import trimesh
 
+import params as P     # cad/ у sys.path при запуску python cad/make_bambu.py
+
 HERE = Path(__file__).resolve().parent.parent
 TEMPLATE = Path(sys.argv[1]) if len(sys.argv) > 1 \
-    else HERE / "NAS_tray-fast-petg.3mf"
+    else HERE / "NAS_tray-ams-petg.3mf"
 
 # поворот «лицем вниз»: x'=x, y'=-z, z'=y (панель y=-99.4 стає низом)
 FACE_DOWN = (1, 0, 0, 0, 0, 1, 0, -1, 0)
 IDENT = (1, 0, 0, 0, 1, 0, 0, 0, 1)
 
 ROT_Z90 = (0, 1, 0, -1, 0, 0, 0, 0, 1)   # довга вісь блока по X
+# snap-зачеп сітки НА БОЦІ (X-гранню вниз): x'=-z, y'=y, z'=x — весь
+# зачеп = YZ-профіль, кожен шар ідентичний; згин ноги-пружини по Y
+# У ПЛОЩИНІ шарів (snap_clip.py, 20.07)
+ROT_Y90 = (0, 0, 1, 0, 1, 0, -1, 0, 0)
+
+# КОВПАК LSI (17.07 в3) — знову FACE_DOWN лицем (y−96.35) вниз:
+# тіло і лезо копланарні спереду, лежать на столі; пронг гнеться по X
+# = у площині шарів (ROT_REAR ери «руки» в2 видалено: лезо на −94.95
+# висіло б островом 2.5 над столом)
+
+# ФРОНТ-АДДОН ТИЛОМ ВНИЗ (21.07, фідбек «покласти на протилежну
+# площину, щоб убрати нависання»): x'=x, y'=z, z'=−y — тил ламелі
+# (y−97.85) стає низом. План плити ⊆ план ламелі (плита 93.65..131.75
+# всередині ламелі 92.15..133.25, той самий Z-діапазон і вирізи) →
+# ламель+язики+крила друкуються ПЕРШИМИ на столі, плита повністю
+# спирається на них — елевовані консолі h1.55 ери FACE_DOWN зникають.
+# Нові навіси тривіальні: crush-ребра язиків біля стола (конус-лійка
+# знизу), фаска-клин 45° самонесуча. Косметика: лице стає ВЕРХНЬОЮ
+# поверхнею (top-шари, не гладке від стола) — див. пам'ятку.
+ROT_REAR = (1, 0, 0, 0, 0, -1, 0, 1, 0)
 
 PLATE_STRIDE = 270.35   # крок пластин (знято з сейвів користувача)
 
@@ -39,6 +104,51 @@ def plate_origin(i):
     Знято з сейва користувача 10.07: плита 2 = (+270.35, 0),
     плита 3 = (0, -270.35)."""
     return (PLATE_STRIDE * (i % 2), -PLATE_STRIDE * (i // 2))
+
+
+# ── 21.07: ЗМІННИЙ ШАР — height ranges ──────────────────────────────────
+# Банди тонкого шару 0.12 на висотах ПОСАДКОВИХ КРОМОК — точність зубів/
+# полиць зачепів без здорожчання всього друку. Механізм: Metadata/
+# layer_config_ranges.xml (знято 1:1 із сейва користувача з одним
+# height-range модифікатором; «мій» layer_heights_profile.txt Студія
+# ігнорувала). object id у файлі = 1-based ПОРЯДОК об'єкта в
+# 3dmodel.model (семпл: XML-ids 2/4/6/8, range id=1 на першому).
+# spans_rz — у «повернутому» домені (координата, що стає віссю Z друку:
+# model-Y для FACE_DOWN, model-Z для IDENT); у build_project
+# конвертується відніманням lo[2] (низ деталі → стіл).
+# 23.07 (друк №2 — «артефактні лінії»): VLH_TRAY (банди снап-сітки +
+# постаментів) і куби-модифікатори slow_top/slow_floor ВИДАЛЕНІ —
+# межі бандів 0.24↔0.12 і площини зміни швидкостей лишали видимі
+# сходинки-смуги на корпусі; зачепи калібрувались тестами №4-9 БЕЗ VLH.
+# Блок: зона Т-пазів (полиці Z5.9, стеля 7.35, верх слаба 8; люфти
+# 0.1/0.15 порівнянні з квантуванням шару 0.2 → тонкий шар критичний)
+VLH_BLOCK = {"fine": 0.12, "spans_rz": [(5.2, 8.2)]}
+
+
+def vlh_ranges(idx, spans, fine, height):
+    """<object> для Metadata/layer_config_ranges.xml: height-range
+    модифікатори одного об'єкта (idx = 1-based порядок у 3dmodel.model);
+    формат 1:1 із сейва Студії."""
+    merged = []                             # злиття перекритих спанів
+    for a, b in sorted(spans):              # (ряд 71 ∩ постаменти 71.9)
+        a = max(a, 0.4)                     # перші шари не чіпаємо
+        b = min(b, height - 0.01)
+        if b <= a:
+            continue
+        if merged and a <= merged[-1][1] + 0.01:
+            merged[-1][1] = max(merged[-1][1], b)
+        else:
+            merged.append([a, b])
+    rngs = []
+    for a, b in merged:
+        rngs.append(f'''  <range min_z="{a:.4f}" max_z="{b:.4f}">
+   <option opt_key="extruder">0</option>
+   <option opt_key="layer_height">{fine}</option>
+  </range>''')
+    if not rngs:
+        return None
+    return f' <object id="{idx}">\n' + "\n".join(rngs) + "\n </object>"
+
 
 # проєкт = список ПЛАСТИН; пластина = список об'єктів
 # (stl, назва, поворот, (dx,dy) від центру пластини, {per-object ключі})
@@ -50,25 +160,47 @@ PROJECTS = {
             dict(name="Корпус (лицем вниз)", objects=[
                 ("tray.stl", "NAS_tray", FACE_DOWN, (0.0, 0.0),
                  {"brim_type": "auto_brim", "brim_width": "5"})]),
-            # шар — ПООБ'ЄКТНО (глобальний 0.24 під корпус); розкладка
-            # пластин = як розклав користувач у сейві 10.07
-            dict(name="Вставка IO + защіпка LSI", objects=[
-                ("io_insert.stl", "IO_insert", FACE_DOWN, (0.0, 10.0),
+            # шар — ПООБ'ЄКТНО (глобальний 0.24 під корпус); пластину
+            # перерозкладено 15.07: панель-аддон 41×89 (лицем вниз) не
+            # вміщалась на місці старої вставки 41×71
+            dict(name="Вставка IO + защіпки", objects=[
+                # 23.07: ТИЛОМ вниз (ROT_REAR) — фланець на столі,
+                # кільце-навіс над носиком зникає (сходинки скасовані)
+                ("io_insert.stl", "IO_insert", ROT_REAR, (0.0, 72.0),
                  {"layer_height": "0.16", "outer_wall_speed": "50"}),
-                ("lsi_clip.stl", "LSI_clip", FACE_DOWN, (0.0, -25.0),
+                ("addon_clip.stl", "Addon_clip", FACE_DOWN, (10.0, -53.0),
+                 {"layer_height": "0.16", "outer_wall_speed": "50"}),
+                # 20.07: snap-зачепи сітки (2 шт на SSD-блок; на боці
+                # + brim — деталь 5.2×5.9×7.2, площа опори мала)
+                ("snap_clip.stl", "Snap_clip_1", ROT_Y90,
+                 (50.0, -53.0),
+                 {"layer_height": "0.16", "outer_wall_speed": "50",
+                  "brim_type": "auto_brim", "brim_width": "3"}),
+                ("snap_clip.stl", "Snap_clip_2", ROT_Y90,
+                 (65.0, -53.0),
+                 {"layer_height": "0.16", "outer_wall_speed": "50",
+                  "brim_type": "auto_brim", "brim_width": "3"}),
+                # 15.07: панель-аддон правої зони з вентилятором
+                # (гвинтиться до тилу аддона); grille/blank — окремі
+                # out/front_grille|front_blank.stl, ті ж параметри
+                # 21.07: ТИЛОМ вниз (ROT_REAR) — консолі язиків геть
+                ("front_fan.stl", "Front_fan", ROT_REAR, (-58.0, -53.0),
                  {"layer_height": "0.16", "outer_wall_speed": "50"})]),
             dict(name="SSD блок", objects=[
                 ("ssd_block.stl", "SSD_block", IDENT, (0.0, 0.0),
                  {"layer_height": "0.2",
                   "sparse_infill_density": "13%",
-                  "sparse_infill_pattern": "gyroid"})]),
+                  "sparse_infill_pattern": "gyroid",
+                  "_vlh": VLH_BLOCK})]),
         ],
+        # travel 6000→4000 (21.07): на 213 мм висоти ривки переміщень
+        # гойдають корпус — травель повільніше, друк-швидкості ті самі
         over={"layer_height": "0.24", "wall_loops": "2",
               "sparse_infill_density": "8%",
               "sparse_infill_pattern": "grid",
               "brim_type": "no_brim",
               "default_acceleration": "6000",
-              "travel_acceleration": "6000"},
+              "travel_acceleration": "4000"},
     ),
     "print_tray": dict(
         plates=[dict(name="Корпус (лицем вниз)", objects=[
@@ -77,20 +209,69 @@ PROJECTS = {
               "sparse_infill_density": "8%",
               "sparse_infill_pattern": "grid",
               "default_acceleration": "6000",
-              "travel_acceleration": "6000"},
+              "travel_acceleration": "4000"},
     ),
     "print_block": dict(
         plates=[dict(name="SSD блок (дном вниз)", objects=[
-            ("ssd_block.stl", "SSD_block", IDENT, (0.0, 0.0), {})])],
+            ("ssd_block.stl", "SSD_block", IDENT, (0.0, 0.0),
+             {"_vlh": VLH_BLOCK})])],
         over={"layer_height": "0.2", "wall_loops": "2",
               "sparse_infill_density": "13%",
               "sparse_infill_pattern": "gyroid",
               "brim_type": "no_brim"},
     ),
+    # 20.07: ТЕСТ №4 snap-fit (test_latch.py) — шматки в БОЙОВИХ
+    # орієнтаціях і з бойовими параметрами шару (інакше тест бреше про
+    # зазори): test_tray СТОЯЧИ на передньому торці = FACE_DOWN (та сама
+    # орієнтація слотів/кишень, що в корпусі лицем вниз, 0.24 + brim 5);
+    # test_block дном вниз 0.2 gyroid; зачепи на боці 0.16 + brim 3
+    "print_test": dict(
+        plates=[
+            dict(name="Тест дна (стоячи, як корпус)", objects=[
+                ("test_tray.stl", "Test_tray", FACE_DOWN, (0.0, 0.0),
+                 {"brim_type": "auto_brim", "brim_width": "5"})]),
+            dict(name="Тест блока + зачепи", objects=[
+                ("test_block.stl", "Test_block", IDENT, (0.0, 0.0),
+                 {"layer_height": "0.2",
+                  "sparse_infill_density": "13%",
+                  "sparse_infill_pattern": "gyroid"}),
+                ("snap_clip.stl", "Snap_clip_1", ROT_Y90, (25.0, -10.0),
+                 {"layer_height": "0.16", "outer_wall_speed": "50",
+                  "brim_type": "auto_brim", "brim_width": "3"}),
+                ("snap_clip.stl", "Snap_clip_2", ROT_Y90, (25.0, 10.0),
+                 {"layer_height": "0.16", "outer_wall_speed": "50",
+                  "brim_type": "auto_brim", "brim_width": "3"})]),
+        ],
+        over={"layer_height": "0.24", "wall_loops": "2",
+              "sparse_infill_density": "8%",
+              "sparse_infill_pattern": "grid",
+              "brim_type": "no_brim",
+              "default_acceleration": "6000",
+              "travel_acceleration": "6000"},
+    ),
+    # 20.07 в6.3: міні-проєкт для передруку ЛИШЕ зачепів (клин-дотиск) —
+    # модульність в дії: слот дна і Т-паз блока вже надруковані, міняється
+    # лише інтерфейсна деталь
+    "print_clips": dict(
+        plates=[dict(name="2 зачепи (на боці)", objects=[
+            ("snap_clip.stl", "Snap_clip_1", ROT_Y90, (-8.0, 0.0),
+             {"brim_type": "auto_brim", "brim_width": "3"}),
+            ("snap_clip.stl", "Snap_clip_2", ROT_Y90, (8.0, 0.0),
+             {"brim_type": "auto_brim", "brim_width": "3"})])],
+        over={"layer_height": "0.16", "wall_loops": "2",
+              "outer_wall_speed": "50",
+              "brim_type": "no_brim"},
+    ),
     "print_small": dict(
-        plates=[dict(name="Вставка IO + защіпка LSI", objects=[
-            ("io_insert.stl", "IO_insert", FACE_DOWN, (-45.0, 0.0), {}),
-            ("lsi_clip.stl", "LSI_clip", FACE_DOWN, (90.0, 0.0), {})])],
+        plates=[dict(name="Вставка IO + защіпки", objects=[
+            ("io_insert.stl", "IO_insert", ROT_REAR, (-45.0, 0.0), {}),
+            ("addon_clip.stl", "Addon_clip", FACE_DOWN, (90.0, 0.0), {}),
+            ("snap_clip.stl", "Snap_clip_1", ROT_Y90, (45.0, 40.0),
+             {"brim_type": "auto_brim", "brim_width": "3"}),
+            ("snap_clip.stl", "Snap_clip_2", ROT_Y90, (60.0, 40.0),
+             {"brim_type": "auto_brim", "brim_width": "3"}),
+            ("front_fan.stl", "Front_fan", ROT_REAR,
+             (-45.0, 74.0), {})])],
         over={"layer_height": "0.16", "wall_loops": "2",
               "outer_wall_speed": "50",
               "brim_type": "no_brim"},
@@ -104,19 +285,22 @@ COMMON = {"reduce_crossing_wall": "1",   # 10.07: travel об'їжджає
           "precise_outer_wall": "1",
           "seam_position": "back",
           "bridge_speed": "28",
+          # 21.07: Арахне — користувач перемкнув у Студії (сейв
+          # підтвердив), тест №6 друкувався ним; не відкочуємо
+          "wall_generator": "arachne",
           "initial_layer_print_height": "0.2"}
 
 
-def mesh_xml(m, obj_uuid, inner_id):
-    v = "\n".join('    <vertex x="%.4f" y="%.4f" z="%.4f"/>' % tuple(p)
-                  for p in m.vertices)
-    t = "\n".join('    <triangle v1="%d" v2="%d" v3="%d"/>' % tuple(f)
-                  for f in m.faces)
-    return f'''<?xml version="1.0" encoding="UTF-8"?>
-<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" requiredextensions="p">
- <metadata name="BambuStudio:3mfVersion">1</metadata>
- <resources>
-  <object id="{inner_id}" p:UUID="{obj_uuid}" type="model">
+def mesh_xml(meshes):
+    """XML файлу object_NNN.model. meshes = [(inner_id, uuid, mesh), …] —
+    21.07: кілька <object> в одному файлі (mesh деталі + куб-модифікатор)."""
+    objs = []
+    for inner_id, obj_uuid, m in meshes:
+        v = "\n".join('    <vertex x="%.4f" y="%.4f" z="%.4f"/>' % tuple(p)
+                      for p in m.vertices)
+        t = "\n".join('    <triangle v1="%d" v2="%d" v3="%d"/>' % tuple(f)
+                      for f in m.faces)
+        objs.append(f'''  <object id="{inner_id}" p:UUID="{obj_uuid}" type="model">
    <mesh>
    <vertices>
 {v}
@@ -125,11 +309,62 @@ def mesh_xml(m, obj_uuid, inner_id):
 {t}
    </triangles>
    </mesh>
-  </object>
+  </object>''')
+    body = "\n".join(objs)
+    return f'''<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" requiredextensions="p">
+ <metadata name="BambuStudio:3mfVersion">1</metadata>
+ <resources>
+{body}
  </resources>
  <build/>
 </model>
 '''
+
+
+def apply_anti_string(s):
+    """22.07: анти-стрінг + охолодження у ВСІ проєкти.
+    Ч.1 (після друку шматка дна — волосінь пережила сушку 38→11% і 250°):
+      245° + ретракція 0.8→1.2.
+    Ч.2 (повний друк №1 ЗУПИНЕНО: перші ромбілі стінок задирались,
+    права SSD-стінка деформована; + «все одно трохи тягнеться»):
+      • overhang_fan_speed 90→100 — стелі вікон ромбілів = міні-мости
+        в одну стінку, їх задирало без повного обдуву;
+      • slow_down_layer_time 12→15 — після h≈8.5 переріз малий,
+        шар швидкий → PETG не встигає тверднути;
+      • retraction_length 1.2→1.6, retraction_speed 30→35,
+        wipe_distance 2→3 — 2-й ступінь анти-стрінгу.
+    23.07 (друк №2 «екстремально погано», дно видулось): ВІДКАТ двох
+    фіксів ч.2 — 240° і aux 40% ПЕРЕОХОЛОДЖУВАЛИ PETG (коробління,
+    погана міжшарова адгезія, шершавість): назад 245°, aux → шаблонний
+    0. Проти мостів стінок тепер працює ГЕОМЕТРІЯ (ізогрід-«ферма»
+    замість ромбілів — мостів у стінках більше нема).
+    Філаментні ключі — diffs-слот [1] (свідомий виняток із правила
+    «філамент не чіпаємо», з дозволу користувача); принтерні —
+    слот [2], міняємо ЛИШЕ записи робочих конфігурацій сопла
+    (retraction_length '0.8', retraction_speed '30' — решта записи
+    інших сопел). different_settings_to_system = [process, filament,
+    printer]."""
+    ch_fil, ch_prn = [], []
+    for k in ("nozzle_temperature", "nozzle_temperature_initial_layer"):
+        s[k] = ["245"] * len(s[k])
+        ch_fil.append(k)
+    for k, val in (("overhang_fan_speed", "100"),
+                   ("slow_down_layer_time", "15")):
+        s[k] = [val] * len(s[k])
+        ch_fil.append(k)
+    s["retraction_length"] = ["1.6" if v == "0.8" else v
+                              for v in s["retraction_length"]]
+    s["retraction_speed"] = ["35" if v == "30" else v
+                             for v in s["retraction_speed"]]
+    s["wipe_distance"] = ["3" if v == "2" else v
+                          for v in s["wipe_distance"]]
+    ch_prn += ["retraction_length", "retraction_speed", "wipe_distance"]
+    diffs = s["different_settings_to_system"]
+    for idx, ch in ((1, ch_fil), (2, ch_prn)):
+        have = set(diffs[idx].split(";")) if diffs[idx] else set()
+        diffs[idx] = ";".join(sorted(have | set(ch)))
+    return s
 
 
 def apply_overrides(settings, over):
@@ -158,7 +393,13 @@ def build_project(name, spec, tz, base_settings):
     objects, rels, model_parts = [], [], {}
     flat = [(pi, ob) for pi, plate in enumerate(spec["plates"])
             for ob in plate["objects"]]
+    vlh_lines = []
     for i, (plate_i, (stl, oname, rot, (dx, dy), oset)) in enumerate(flat):
+        oset = dict(oset)               # 21.07: службові ключі — геть
+        vlh = oset.pop("_vlh", None)    # з per-object metadata
+        mods = oset.pop("_mod", None)   # 22.07: один mod або список
+        if isinstance(mods, dict):
+            mods = [mods]
         m = trimesh.load(HERE / "out" / stl)
         oid = 2 + i
         inner = 100 + oid                     # id меша всередині файлу:
@@ -174,6 +415,7 @@ def build_project(name, spec, tz, base_settings):
         # не залежить від конвенції
         import numpy as np
         R = np.array(rot, float).reshape(3, 3)
+        mb0, mb1 = m.bounds             # 22.07: модельні межі ДО повороту
         vv = m.vertices @ R
         lo, hi = vv.min(0), vv.max(0)
         px, py = plate_origin(plate_i)
@@ -183,22 +425,72 @@ def build_project(name, spec, tz, base_settings):
             -lo[2]])
         m = trimesh.Trimesh(vertices=vv + shift, faces=m.faces,
                             process=False)
-        model_parts[path.lstrip("/")] = mesh_xml(m, inner_uuid, inner)
-        tr = "1 0 0 0 1 0 0 0 1 0 0 0" 
+        meshes = [(inner, inner_uuid, m)]
+        mod_parts = []
+        for j, mod in enumerate(mods or []):
+            # куб-модифікатор поверх деталі — лише швидкості, без
+            # окремого об'єкта на пластині. Два режими (22.07):
+            #  • z0 — від висоти друку z0 до верху («повільний верх»);
+            #  • zmodel — Z-діапазон у МОДЕЛЬНИХ координатах, куб
+            #    обертається тим самим R + shift, що й деталь
+            #    («повільне дно»: плита дна у FACE_DOWN = верт. слаб)
+            if "zmodel" in mod:
+                z0m, z1m = mod["zmodel"]
+                ext = (mb1[0] - mb0[0] + 10.0, mb1[1] - mb0[1] + 10.0,
+                       z1m - z0m)
+                cube = trimesh.creation.box(extents=ext)
+                cube.apply_translation([(mb0[0] + mb1[0]) / 2,
+                                        (mb0[1] + mb1[1]) / 2,
+                                        (z0m + z1m) / 2])
+                cube = trimesh.Trimesh(vertices=cube.vertices @ R + shift,
+                                       faces=cube.faces, process=False)
+            else:
+                b0, b1 = m.bounds
+                ext = (b1[0] - b0[0] + 10.0, b1[1] - b0[1] + 10.0,
+                       b1[2] + 5.0 - mod["z0"])
+                cube = trimesh.creation.box(extents=ext)
+                cube.apply_translation([(b0[0] + b1[0]) / 2,
+                                        (b0[1] + b1[1]) / 2,
+                                        mod["z0"] + ext[2] / 2])
+            mod_part = dict(
+                inner=inner + 500 + 10 * j,
+                uuid=f"00{oid}9{1 + j}000-81cb-4c03-9d28-80fed5dfa1dc",
+                comp_uuid=f"00{oid}9{1 + j}000-b206-40ff-9872-83e8017abed1",
+                name=mod["name"], set=mod["set"], faces=len(cube.faces))
+            meshes.append((mod_part["inner"], mod_part["uuid"], cube))
+            mod_parts.append(mod_part)
+        model_parts[path.lstrip("/")] = mesh_xml(meshes)
+        if vlh is not None:
+            # банди тонкого шару; висоти — у координатах друку деталі
+            spans = [(a - lo[2], b - lo[2]) for a, b in vlh["spans_rz"]]
+            blk = vlh_ranges(i + 1, spans, vlh["fine"], hi[2] - lo[2])
+            if blk:
+                vlh_lines.append(blk)
+        tr = "1 0 0 0 1 0 0 0 1 0 0 0"
         objects.append(dict(oid=oid, inner=inner, name=oname,
                             path=path, tr=tr,
                             faces=len(m.faces), obj_uuid=obj_uuid,
                             comp_uuid=comp_uuid, item_uuid=item_uuid,
-                            oset=oset, plate=plate_i))
+                            oset=oset, plate=plate_i, mods=mod_parts))
         rels.append(
             f'<Relationship Target="{path}" Id="rel-obj-{oid}" '
             'Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/'
             '3dmodel"/>')
 
+    def comps(o):
+        c = [f'    <component p:path="{o["path"]}" objectid="{o["inner"]}"'
+             f' p:UUID="{o["comp_uuid"]}" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>']
+        for mp in o["mods"]:
+            c.append(f'    <component p:path="{o["path"]}"'
+                     f' objectid="{mp["inner"]}"'
+                     f' p:UUID="{mp["comp_uuid"]}"'
+                     ' transform="1 0 0 0 1 0 0 0 1 0 0 0"/>')
+        return "\n".join(c)
+
     res = "\n".join(
         f'''  <object id="{o["oid"]}" p:UUID="{o["obj_uuid"]}" type="model">
    <components>
-    <component p:path="{o["path"]}" objectid="{o["inner"]}" p:UUID="{o["comp_uuid"]}" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>
+{comps(o)}
    </components>
   </object>''' for o in objects)
     items = "\n".join(
@@ -217,19 +509,38 @@ def build_project(name, spec, tz, base_settings):
  </build>
 </model>
 '''
-    obj_meta = "\n".join(f'''  <object id="{o["oid"]}">
-    <metadata key="name" value="{o["name"]}"/>
-    <metadata key="extruder" value="1"/>
-{"".join(chr(10).join(f'    <metadata key="{k}" value="{v}"/>' for k, v in o["oset"].items()) + chr(10) if o["oset"] else "")}
-    <metadata face_count="{o["faces"]}"/>
-    <part id="1" subtype="normal_part">
+    def parts_meta(o):
+        # part id = id МЕША в об'єкт-файлі (objectid компонента) — так
+        # матчить Студія (сейв користувача: parts 1/3/5/7 = inner ids);
+        # з "1"/"2" куб-модифікатор не матчився → ставав normal_part
+        p = [f'''    <part id="{o["inner"]}" subtype="normal_part">
       <metadata key="name" value="{o["name"]}"/>
       <metadata key="matrix" value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"/>
       <metadata key="source_file" value="{o["name"]}.stl"/>
       <metadata key="source_object_id" value="0"/>
       <metadata key="source_volume_id" value="0"/>
       <mesh_stat face_count="{o["faces"]}" edges_fixed="0" degenerate_facets="0" facets_removed="0" facets_reversed="0" backwards_edges="0"/>
-    </part>
+    </part>''']
+        for mp in o["mods"]:
+            # 21.07: modifier_part — невідомі ключі part-metadata Студія
+            # кладе у volume config (підтверджено сейвом користувача:
+            # per-object scalar overrides працюють так само)
+            mset = "\n".join(f'      <metadata key="{k}" value="{v}"/>'
+                             for k, v in mp["set"].items())
+            p.append(f'''    <part id="{mp["inner"]}" subtype="modifier_part">
+      <metadata key="name" value="{mp["name"]}"/>
+      <metadata key="matrix" value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"/>
+{mset}
+      <mesh_stat face_count="{mp["faces"]}" edges_fixed="0" degenerate_facets="0" facets_removed="0" facets_reversed="0" backwards_edges="0"/>
+    </part>''')
+        return "\n".join(p)
+
+    obj_meta = "\n".join(f'''  <object id="{o["oid"]}">
+    <metadata key="name" value="{o["name"]}"/>
+    <metadata key="extruder" value="1"/>
+{"".join(chr(10).join(f'    <metadata key="{k}" value="{v}"/>' for k, v in o["oset"].items()) + chr(10) if o["oset"] else "")}
+    <metadata face_count="{o["faces"]}"/>
+{parts_meta(o)}
   </object>''' for o in objects)
     n_plates = len(spec["plates"])
     plates_meta = []
@@ -262,7 +573,8 @@ def build_project(name, spec, tz, base_settings):
   </assemble>
 </config>
 '''
-    settings = apply_overrides(base_settings, {**COMMON, **spec["over"]})
+    settings = apply_anti_string(
+        apply_overrides(base_settings, {**COMMON, **spec["over"]}))
 
     out = HERE / "out" / f"{name}.3mf"
     with zipfile.ZipFile(TEMPLATE) as z:
@@ -295,7 +607,21 @@ def build_project(name, spec, tz, base_settings):
         z.writestr("Metadata/model_settings.config", model_cfg)
         z.writestr("Metadata/project_settings.config",
                    json.dumps(settings, indent=4, ensure_ascii=False))
-    print(f"  {out.name}: пластин {n_plates}, об'єктів {len(objects)}, шар {settings['layer_height']}")
+        if vlh_lines:
+            # 21.07: height-range модифікатори (формат сейва Студії)
+            z.writestr("Metadata/layer_config_ranges.xml",
+                       '<?xml version="1.0" encoding="utf-8"?>\n'
+                       '<objects>\n' + "\n".join(vlh_lines)
+                       + "\n</objects>")
+    extras = []
+    if vlh_lines:
+        extras.append(f"vlh×{len(vlh_lines)}")
+    mod_names = [mp["name"] for o in objects for mp in o["mods"]]
+    if mod_names:
+        extras.append("mod " + "+".join(mod_names))
+    print(f"  {out.name}: пластин {n_plates}, об'єктів {len(objects)}, "
+          f"шар {settings['layer_height']}"
+          + (f" [{', '.join(extras)}]" if extras else ""))
 
 
 if __name__ == "__main__":

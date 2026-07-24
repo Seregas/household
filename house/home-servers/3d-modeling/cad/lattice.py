@@ -32,6 +32,97 @@ def tip_inset():
     return s * math.cos(math.radians(30)) - abs(probe.bounds[0])
 
 
+def _cleanup(field, holes):
+    """Спільні чистки: «циглики» (висячі фрагменти ребер, contacts<=1)
+    і «волосини» (стінки матеріалу < ~0.6мм) вливаються у вирізи."""
+    holes = list(holes)
+    holesU = unary_union(holes)
+    ctx = field.buffer(3.0).difference(holesU)
+    # «циглики»: тонкі висячі фрагменти ребер
+    opened = ctx.buffer(-0.65).buffer(0.65, quad_segs=8)
+    skinny = ctx.difference(opened)
+    for c in _polys(skinny):
+        if c.area >= 10.0 or not c.intersects(field):
+            continue
+        contacts = len(_polys(c.buffer(0.05).intersection(opened)))
+        if contacts <= 1:
+            holes.append(c)
+    # «волосини»: стінки тонші ~0.6мм
+    mat = field.buffer(3.0).difference(unary_union(holes))
+    hair = mat.difference(mat.buffer(-0.4).buffer(0.4, quad_segs=8))
+    holes.extend([c for c in _polys(hair)
+                  if c.area < 5.0 and c.intersects(field)])
+    return holes
+
+
+def iso_holes(field, anchor_u, anchor_v):
+    """Вирізи-трикутники ІЗОГРІД (рівносторонні, сторона ISO_A) у полі
+    field (u,v). Історія: 23.07 ч.1 — «ферма 45°» (стрейчені трикутники,
+    нуль мостів); 23.07 ч.2 (фідбек «зроби нормальний ізогрід, на 3мм
+    буде все добре») — канонічні рівносторонні.
+    ОРІЄНТАЦІЯ ПІД ДРУК (u = модельний Y = вісь висоти FACE_DOWN):
+    бази ЛИШЕ вздовж v (модельний Z = горизонталь друку) → діагоналі
+    60° від бази = 30° від вертикалі друку (самонесучі); стелі вікон
+    «вершиною вниз» = мости ~10мм (правило ≤12, стінка тепер 3.0).
+    Бази вздовж u були б катастрофою: КОЖНА діагональ = навіс 60°.
+    anchor_u/anchor_v — прив'язка ґратки (лівий/нижній край поля)."""
+    a = P.ISO_A
+    h = a * math.sqrt(3) / 2             # висота рівностороннього ряду
+    ero = P.ISO_T / 2 + P.ISO_R
+    fu0, fv0, fu1, fv1 = field.bounds
+    nrow = int((fu1 - fu0) / h) + 3      # ряди вздовж u
+    ncol = int((fv1 - fv0) / a) + 3      # трикутники вздовж v
+
+    tris = []
+    for row in range(-1, nrow + 1):
+        u0 = anchor_u + row * h          # низ ряду (база «апекс-вгору»)
+        stag = (row % 2) * a / 2         # стагер вершин через ряд
+        for col in range(-1, ncol + 1):
+            v0 = anchor_v + col * a + stag
+            # «апекс до +u»: база на u0, вершина на u0+h
+            tU = sg.Polygon([(u0, v0), (u0, v0 + a), (u0 + h, v0 + a / 2)])
+            # комплементарний «апекс до −u»: база на u0+h
+            tD = sg.Polygon([(u0 + h, v0 + a / 2), (u0 + h, v0 + 3 * a / 2),
+                             (u0, v0 + a)])
+            for tri in (tU, tD):
+                if not tri.intersects(field):
+                    continue
+                pk = tri.buffer(-ero).buffer(P.ISO_R, quad_segs=8) \
+                        .intersection(field)
+                for g in _polys(pk):
+                    if g.area < 1.5 or g.buffer(-0.45).is_empty:
+                        continue
+                    tris.append(g)
+    return _cleanup(field, tris)
+
+
+def membrane2d(u0, v0, u1, v1, r):
+    """Жертовна МЕМБРАНА у вікні (u0,v0)-(u1,v1) з кутами R=r (24.07):
+    ядро = вікно.buffer(−MEM_SLIT) — перфораційна щілина по периметру;
+    містки MEM_TAB_W кожні ~MEM_TAB_PITCH на всіх 4 сторонах перекривають
+    щілину (0.5 у тіло за вікном + вросток 1.0 у ядро). Повертає полігон
+    (u,v); екструдувати на MEM_T у центрі товщі стінки/дна. Після друку
+    викушується по перфорації «як поштова марка»."""
+    win = sg.box(u0 + r, v0 + r, u1 - r, v1 - r).buffer(r, quad_segs=16)
+    core = win.buffer(-P.MEM_SLIT)
+
+    def spots(a0, a1):
+        lo, hi = a0 + 4.0, a1 - 4.0
+        n = max(2, int(math.ceil((hi - lo) / P.MEM_TAB_PITCH)) + 1)
+        return [lo + (hi - lo) * k / (n - 1) for k in range(n)]
+
+    w = P.MEM_TAB_W / 2
+    ein = P.MEM_SLIT + 1.0            # вросток у ядро за щілиною
+    tabs = []
+    for u in spots(u0, u1):
+        tabs.append(sg.box(u - w, v0 - 0.5, u + w, v0 + ein))
+        tabs.append(sg.box(u - w, v1 - ein, u + w, v1 + 0.5))
+    for v in spots(v0, v1):
+        tabs.append(sg.box(u0 - 0.5, v - w, u0 + ein, v + w))
+        tabs.append(sg.box(u1 - ein, v - w, u1 + 0.5, v + w))
+    return unary_union([core] + tabs)
+
+
 def rhombille_holes(field, anchor_u, anchor_v):
     """Вирізи-ромби у полі field (координати (u,v), pointy-top по v).
     anchor_u — лінія, на яку лягають вершини цілих ромбів (tip-align);
@@ -66,21 +157,4 @@ def rhombille_holes(field, anchor_u, anchor_v):
                         continue
                     rhomb.append(g)
 
-    holes = list(rhomb)
-    rhombU = unary_union(rhomb)
-    ctx = field.buffer(3.0).difference(rhombU)
-    # «циглики»: тонкі висячі фрагменти ребер
-    opened = ctx.buffer(-0.65).buffer(0.65, quad_segs=8)
-    skinny = ctx.difference(opened)
-    for c in _polys(skinny):
-        if c.area >= 10.0 or not c.intersects(field):
-            continue
-        contacts = len(_polys(c.buffer(0.05).intersection(opened)))
-        if contacts <= 1:
-            holes.append(c)
-    # «волосини»: стінки тонші ~0.6мм
-    mat = field.buffer(3.0).difference(unary_union(holes))
-    hair = mat.difference(mat.buffer(-0.4).buffer(0.4, quad_segs=8))
-    holes.extend([c for c in _polys(hair)
-                  if c.area < 5.0 and c.intersects(field)])
-    return holes
+    return _cleanup(field, rhomb)

@@ -60,15 +60,16 @@ def plan_geometry():
     # соти біля S4 збіглась із гранню іншого оператора (6 відкритих ребер
     # на X96.65) — зсув фази розбиває точні збіги, функційно нейтральний
     cx0, cy0 = (x0 + x1) / 2 + 0.11, (y0 + y1) / 2
-    # 09.07: кріплення блока тепер SNAPFIT — пади-«постаменти» гвинтів
-    # видалені; суцільні зони лише під скобами язиків (прямокутні)
+    # 20.07: СІТКА SNAP-FIT — симетричні пади комірок (слот + підмембранна
+    # кишеня + обідок) у правій смузі, всі ряди × 2 колонки
     pads = unary_union(
         [sg.Point(x, y).buffer(P.STANDOFF_PAD_D / 2, 48)
          for x, y in P.STANDOFF_XY.values()]
-        + [sg.box(xc - P.SNAP_CLIP_GAP / 2 - P.SNAP_CLIP_WALL - 2.0,
-                  P.SNAP_CLIP_Y[0] - 2.0,
-                  xc + P.SNAP_CLIP_GAP / 2 + P.SNAP_CLIP_WALL + 2.0,
-                  P.SNAP_CLIP_Y[1] + 2.0) for xc in P.SNAP_TAB_XC])
+        + [sg.box(cx - P.SNAP_SLOT_X / 2 - P.ANCHOR_PAD_RIM,
+                  ry - P.SNAP_TOOTH_POCKET_Y - P.ANCHOR_PAD_RIM,
+                  cx + P.SNAP_SLOT_X / 2 + P.ANCHOR_PAD_RIM,
+                  ry + P.SNAP_TOOTH_POCKET_Y + P.ANCHOR_PAD_RIM)
+           for cx in P.ANCHOR_COLS for ry in P.ANCHOR_ROWS])
     windows = unary_union([_rounded(sg.box(k['x'][0], k['y'][0], k['x'][1], k['y'][1]),
                                     P.RAM_WIN_R)
                            for k in P.RAM_KEEPOUT.values()])
@@ -97,6 +98,12 @@ def plan_geometry():
     # суцільними (жорсткість); повні соти ріжемо завжди.
     allowed = interior.difference(windows.buffer(P.RAM_WIN_RIM))
     full_hex_area = _rounded(hexp(0, 0, Rc), P.HEX_CORNER_R).area
+    # 17.07 (фідбек 86.43/92.82): точка на стінці двох сот — обидві
+    # суміжні соти НЕ ріжуться, а заливаються ізогрідом (додаються в
+    # зону корони нижче)
+    iso_fill = unary_union([sg.Point(x, y).buffer(1.0)
+                            for x, y in P.ISO_FILL_XY])
+    iso_hexes = []
     holes = []
     ncol = int((x1 - x0) / dx) + 3
     nrow = int((y1 - y0) / dy) + 3
@@ -109,6 +116,9 @@ def plan_geometry():
             h = hexp(hx, hy, Rc)
             if not h.intersects(interior):
                 continue
+            if h.intersects(iso_fill):
+                iso_hexes.append(_rounded(h, P.HEX_CORNER_R))
+                continue                        # сота заливається ізогрідом
             if h.intersects(pads):
                 continue                        # зона постаменту — без сот
             hc = _rounded(h, P.HEX_CORNER_R).intersection(allowed)
@@ -125,13 +135,9 @@ def plan_geometry():
                     continue                    # фрагмент біля постаменту → суцільний
                 holes.append(g)
 
-    # SSD живе ОКРЕМИМ блоком (ssd_block.py) на полозах; у дні від нього
-    # лише: пади ⌀10 + самонарізи кріплення блока (3xM3), зріз рами під
-    # футпринтом і зона без корони (нижче). Соти скрізь — підсос знизу.
-    y0s = P.SSD_Y[0] + P.SSD_B_SHIFT - 2
-    y1s = P.SSD_Y[1] + 2
-    # (08.07: хрести-перемички і окремі mount-пади видалені — кріплення
-    # тепер повноцінні «постаменти» через pads вище)
+    # SSD живе ОКРЕМИМ блоком (ssd_block.py); 13.07: кріпиться до дна
+    # СІТКОЮ (місток у ряду Y5 + гачок в5.2 за паз бортика) — у дні від
+    # нього нічого власного. Соти скрізь — підсос знизу.
     # смуга ПІД ТРАМПЛІНОМ бортика — суцільна (соти лишали його підошву
     # над дірками: 36.9/100.9 — «має на чомусь стояти»); задня рама від
     # 103.5 і так суцільна
@@ -162,6 +168,12 @@ def plan_geometry():
     # збігається з ними по побудові; на глибині 113.5 ретайлінг дав
     # коінцидентну стінку крона↔сота на X-71.1 → 6 відкритих ребер STL)
     zone = zone.buffer(-0.08)
+    # 13.07 (фідбек 127.35/22.4/1.6): втоплення -0.08 відступало і від
+    # РАМИ — канавка 0.08 до мембрани вздовж межі interior. Доліплюємо
+    # крону в раму (перекриття ~0.4), лишаючи 0.08 від стінок сот
+    frame_ring = sg.LineString(interior.exterior.coords).buffer(0.6)
+    zone = zone.union(zone.buffer(0.5).intersection(frame_ring)
+                      .difference(voids.buffer(0.08)))
     # зона SSD-блока без корони (полози мають стояти на рівному 2мм)
     # (08.07: crown-killer SSD-зони ВИДАЛЕНИЙ — блок на полозах стоїть
     # на рівні корони Z3, ізогрід під ним = опора + «залий ізогрідами»
@@ -176,6 +188,29 @@ def plan_geometry():
                                   _ra["x"][0] + 0.2, _ra["y"][1]))
     # коридори вікно↔рама — гладенькі 2мм: без корони й трикутників
     zone = zone.difference(corridors)
+    # 23.07 (скрін користувача, кут вікна A): межа корони має йти по
+    # лінії заокруглення ободка, ізогрід ширший (покриває −39.9/75.18).
+    # Смужка між вікнами (вище) різала до y1 вікна A, хоча вікно B
+    # закінчується на y67.9 (модуля там уже нема), а morph opening
+    # лишав у куті гачок-завиток. Доливаємо зону явно — кутова латка
+    # до стандартного відступу 0.5 від вікон (як у решти зони).
+    _corner = sg.box(-45.0, _rb["y"][1] + 0.2, -33.0, 79.0)
+    zone = zone.union(solid.intersection(_corner)
+                      .difference(windows.buffer(0.5))
+                      .difference(voids.buffer(0.08)))
+    # 17.07: залиті соти (ISO_FILL_XY) — у зону ізогріду; обідок 2мм по
+    # межі дає сам pocket_region (zone.buffer(-2.0) нижче)
+    if iso_hexes:
+        zone = zone.union(unary_union(iso_hexes).intersection(solid))
+    # 23.07 («прибери кругляшок»): замість заливати острів суцільним
+    # колом R2 (видима латка) — ПРИТУПЛЮЄМО хвіст кишені малим колом:
+    # верхівка кишені відступає від вертикального ребра, щілина 0.15
+    # закривається і вістря корони зростається з ребром у КОЖНОМУ шарі
+    # FACE_DOWN (підпора знизу через ребро). Кола ріжуться з кишень
+    # нижче, у циклі (pocket_blunt).
+    pocket_blunt = unary_union(
+        [sg.Point(x, y).buffer(P.CROWN_TRIM_R, 32)
+         for x, y in P.CROWN_TRIM_XY]) if P.CROWN_TRIM_XY else None
 
     # ── трикутні кишені (6 на комірку, R1), ребра TRI_RIB_W між ними ──
     inset = P.TRI_RIB_W / 2
@@ -186,13 +221,19 @@ def plan_geometry():
     base_keep = unary_union(
         [sg.Point(x, y).buffer(keep_r, 48)
          for x, y in P.STANDOFF_XY.values()]
-        # зони скоб: наскрізні кишені ізогріду лишали ногу скоби над
-        # дірою (фідбек 09.07: 124.38/4.5) — кишені тут не ріжемо
-        + [sg.box(xc - P.SNAP_CLIP_GAP / 2 - P.SNAP_CLIP_WALL - 1.0,
-                  P.SNAP_CLIP_Y[0] - 1.5,
-                  xc + P.SNAP_CLIP_GAP / 2 + P.SNAP_CLIP_WALL + 1.0,
-                  P.SNAP_CLIP_Y[1] + 1.5) for xc in P.SNAP_TAB_XC])
-    pocket_region = zone.buffer(-2.0).difference(base_keep)
+        # комірки snap-fit: кишені ізогріду тут НЕ ріжемо — пад
+        # суцільний (мембрана над підмембранною кишенею і так 1.6)
+        + [sg.box(cx - P.SNAP_SLOT_X / 2 - P.ANCHOR_PAD_RIM,
+                  ry - P.SNAP_TOOTH_POCKET_Y - P.ANCHOR_PAD_RIM,
+                  cx + P.SNAP_SLOT_X / 2 + P.ANCHOR_PAD_RIM,
+                  ry + P.SNAP_TOOTH_POCKET_Y + P.ANCHOR_PAD_RIM)
+           for cx in P.ANCHOR_COLS for ry in P.ANCHOR_ROWS])
+    # 23.07 (друк №2, прогалини під трампліном ПОВЕРНУЛИСЬ): ramp_strip
+    # різав лише СОТИ — наскрізні кишені корони-ізогріду він не чіпав, і
+    # зсув ґратки 22.07 (крок 19.6→20.0) поставив кишені під підошву
+    # дуги. Генеричний фікс: смуга виключається і з зони кишень.
+    pocket_region = zone.buffer(-2.0).difference(base_keep) \
+                        .difference(ramp_strip)
     pockets = []
     for (hx, hy) in cells:
         cell_pts = [(hx + Rcell * math.cos(math.radians(a)),
@@ -205,8 +246,13 @@ def plan_geometry():
             pk = tri.buffer(-(inset + P.HEX_CORNER_R)) \
                     .buffer(P.HEX_CORNER_R, quad_segs=8) \
                     .intersection(pocket_region)
+            if pocket_blunt is not None:
+                pk = pk.difference(pocket_blunt)
             for g in _polys(pk):
-                if g.area > 2.0:
+                # 17.07: + фільтр ширини — кишені-СЛІВЕРСИ (<0.9мм) біля
+                # кутів анкерних падів лишали тонкі гачки корони
+                # (фідбек 117.95/−33.38, 118.17/−17.12)
+                if g.area > 2.0 and not g.buffer(-0.45).is_empty:
                     pockets.append(g)
 
     from shapely import set_precision
@@ -325,25 +371,30 @@ def build():
                     RectangleRounded(wx1 - wx0, wy1 - wy0, radius=P.RAM_WIN_R)
             extrude(amount=1 + P.FRAME_T + 1, mode=Mode.SUBTRACT)
 
-        # ── SNAPFIT-кріплення блока (09.07, tool-less) ──
-        # скоби-містки під передні язики: стінки + дах з 45°-фаскою
-        # спереду (друк лицем вниз — профіль наростає з дна поступово)
-        for xc in P.SNAP_TAB_XC:
-            g2 = P.SNAP_CLIP_GAP / 2
-            wl = P.SNAP_CLIP_WALL
-            cy0, cy1 = P.SNAP_CLIP_Y
-            for sx in (-1, 1):
-                with Locations((xc + sx * (g2 + wl / 2),
-                                (cy0 + cy1) / 2, P.INFILL_T)):
-                    Box(wl, cy1 - cy0, P.SNAP_CLIP_TOP[1] - P.INFILL_T,
-                        align=AMIN)
-            with Locations((xc, (cy0 + cy1) / 2, P.SNAP_CLIP_TOP[0])):
-                Box(2 * g2 + 2 * wl, cy1 - cy0,
-                    P.SNAP_CLIP_TOP[1] - P.SNAP_CLIP_TOP[0], align=AMIN)
-            # (09.07: фаски-клини скоб видалені — «який сенс у нахилі»:
-            # раптові стіни цієї висоти друкуються нормально)
-        # (09.07 в3: планки-зачепа нема — зуби чіпляються в нішки
-        # торців прорізу бортика, різ у walls.py)
+        # ── СІТКА АДДОНІВ (20.07, snap-fit — cad/snap_kin.py): комірка =
+        # СИМЕТРИЧНИЙ слот у мембрані (наскрізь) + ПІДМЕМБРАННА КИШЕНЯ
+        # знизу Z0..LEDGE (1.4) — зуб зачепа чіпляється під мембрану і
+        # ХОВАЄТЬСЯ В ТОВЩІ ДНА (знизу корпусу не видно, нижче Z0 нічого).
+        # Кишеня відкрита вниз — крізь неї зуби притискаються при
+        # зніманні. Друк лицем вниз: стінки вертикальні, без підтримок.
+        with BuildSketch(Plane.XY.offset(-1)):
+            with Locations(*[(cx, ry)
+                             for cx in P.ANCHOR_COLS
+                             for ry in P.ANCHOR_ROWS]):
+                RectangleRounded(P.SNAP_SLOT_X, 2 * P.SNAP_SLOT_HALF,
+                                 radius=P.SNAP_SLOT_R)
+        extrude(amount=1 + P.FRAME_T + 1, mode=Mode.SUBTRACT)
+        with BuildSketch(Plane.XY.offset(-1)):
+            with Locations(*[(cx, ry)
+                             for cx in P.ANCHOR_COLS
+                             for ry in P.ANCHOR_ROWS]):
+                RectangleRounded(P.SNAP_SLOT_X, 2 * P.SNAP_TOOTH_POCKET_Y,
+                                 radius=0.8)
+        extrude(amount=1 + P.SNAP_LEDGE_Z, mode=Mode.SUBTRACT)
+        # (17.07 #3: пази язиків аддона в передній рамі + лійка-розхил
+        # ВИДАЛЕНІ — язики тепер у площині ламелі аддона, у кишенях
+        # смуги-обідка ПАНЕЛІ (front.py); рама дна суцільна)
+
         # ── наскрізні отвори ⌀4 ──
         for (x, y) in P.STANDOFF_XY.values():
             with Locations((x, y, -1)):
@@ -356,6 +407,83 @@ def build():
                     .filter_by(lambda e: abs(e.arc_center.Z - P.STANDOFF_TOP_Z) < 1e-6
                                and e.radius > P.STANDOFF_HOLE_D / 2 + 0.5))
         chamfer(top_rims, length=P.STANDOFF_CHAMFER)
+
+        # ── 20.07 (зонд probe_print): дозріз колон над RAM-вікнами ──
+        # Різ вище (до Z4) лишав скибку колони S3 z4..7.55 НАД вікном B —
+        # у друці лицем вниз вона стартувала ОСТРОВОМ у повітрі (6.5 мм²,
+        # висота 167). Різ ПІСЛЯ фаски (chamfer хоче повне коло обода;
+        # спроба «різ до фаски» валила chamfer на дузі+хорді). Проти
+        # копланарності зі стінками старого різу (invalid-шелл, урок
+        # 02.07): футпринт +0.1 назовні, низ Z3.5 — у повітрі вікна,
+        # жодної спільної площини. Зачіпає ЛИШЕ колону (обідок/корона
+        # закінчуються на Z3); кліренс до RAM-модуля стає на 0.1 більший.
+        for k in P.RAM_KEEPOUT.values():
+            wx0, wx1 = k['x']; wy0, wy1 = k['y']
+            with BuildSketch(Plane.XY.offset(P.FRAME_T + 0.5)):
+                with Locations(((wx0 + wx1) / 2, (wy0 + wy1) / 2)):
+                    RectangleRounded(wx1 - wx0 + 0.2, wy1 - wy0 + 0.2,
+                                     radius=P.RAM_WIN_R)
+            extrude(amount=P.STANDOFF_TOP_Z - P.FRAME_T + 1,
+                    mode=Mode.SUBTRACT)
+
+        # ── 24.07: жертовні МЕМБРАНИ у RAM-вікнах + ФІНИ під колони ──
+        # (друк №3: «провисають отвори під пам'ять» — у FACE_DOWN верхні
+        # кромки вікон = мости 75/35мм. Мембрана MEM_T у центрі товщі
+        # інфілу Z0.6..1.4 з перфорацією → прольоти ≤12 між містками —
+        # замінює мальовані підтримки. Фіни підпирають найнижчі хорди
+        # лежачих колон (навіси 3.6-4.05 з probe_print). Після друку все
+        # викушується/виламується. ДОДАВАТИ ПІСЛЯ всіх різів вікон
+        # (z≥3.5 їх не чіпає) і після chamfer (не збити фільтр ребер).)
+        zm = P.INFILL_T / 2 - P.MEM_T / 2            # низ мембрани 0.6
+        for name, k in P.RAM_KEEPOUT.items():
+            wx0, wx1 = k['x']; wy0, wy1 = k['y']
+            mem = lattice.membrane2d(wx0, wy0, wx1, wy1, P.RAM_WIN_R)
+            if name == 'B':
+                # явний місток x=−68.3 на верхній кромці (генеричні
+                # позиції −70.3/−61.3/… не покривають фін S3 — його
+                # шари вище краю ядра висіли б у повітрі)
+                sx3 = P.STANDOFF_XY['S3'][0]
+                mem = mem.union(sg.box(
+                    sx3 - P.MEM_TAB_W / 2, wy1 - (P.MEM_SLIT + 1.0),
+                    sx3 + P.MEM_TAB_W / 2, wy1 + 0.5))
+            with BuildSketch(Plane.XY.offset(zm)) as msk:
+                for g in _polys(mem):
+                    with BuildLine():
+                        Polyline(*g.exterior.coords)
+                    make_face()
+            extrude(msk.sketch, amount=P.MEM_T)
+
+        # фіни S1/S2/S4 (collar-тип): лезо PED_FIN_T по X під нижньою
+        # хордою колони (y=cy−4.5), верх з зазором PED_FIN_GAP; анкер —
+        # вросток z2.5..3 у суцільний комірець ⌀17 (на x=cx±0.4 комірець
+        # сягає y=cy±8.49); виїмка знизу обходить галтель-кільце
+        # (кліренс ≥0.15 при z≈3.05); гіпотенуза 45° — ріст самонесучий
+        rr = P.STANDOFF_D / 2
+        for sname in ('S1', 'S2', 'S4'):
+            cx, cy = P.STANDOFF_XY[sname]
+            yt = cy - rr - P.PED_FIN_GAP             # верх = cy−4.65
+            with BuildSketch(Plane.YZ.offset(cx - P.PED_FIN_T / 2)) as fsk:
+                with BuildLine():
+                    Polyline((cy - 8.4, 2.5), (cy - 8.4, 3.2),
+                             (yt, 3.2 + (yt - (cy - 8.4))),   # 45° → 6.95
+                             (yt, 4.6), (cy - 5.65, 3.6),
+                             (cy - 5.65, 2.5), (cy - 8.4, 2.5))
+                make_face()
+            extrude(fsk.sketch, amount=P.PED_FIN_T)
+
+        # фін S3 — membrane-тип: колона зрізана вікном B (грань зрізу
+        # y=68.0, комірця під нею нема) → фін висить на мембрані
+        # (вросток z0.6..1.4), ріст 45°, верх 0.15 під гранню зрізу;
+        # шари вище краю ядра (y>67.1) анкеряться в явний місток вище
+        cx3 = P.STANDOFF_XY['S3'][0]
+        yb = P.RAM_KEEPOUT['B']['y'][1] + 0.1 - P.PED_FIN_GAP   # 67.85
+        with BuildSketch(Plane.YZ.offset(cx3 - P.PED_FIN_T / 2)) as f3k:
+            with BuildLine():
+                Polyline((yb - 5.6, zm), (yb - 5.6, zm + P.MEM_T),
+                         (yb, zm + P.MEM_T + 5.6), (yb, zm),
+                         (yb - 5.6, zm))
+            make_face()
+        extrude(f3k.sketch, amount=P.PED_FIN_T)
 
     return tray.part
 
