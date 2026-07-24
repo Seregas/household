@@ -3,33 +3,26 @@ io_insert.py — ЗМІННА I/O-ВСТАВКА (09.07, ідея користу
 Панель має апертуру 1:1 під сталевий щиток; порти конкретної плати ріжуться
 в цій друкованій вставці. Зміна плати = передрук вставки, не корпусу.
 
-Конструкція (все tool-less):
-  • носик = апертура −0.2/бік, товщина 1.4 (лице −0.1 від лиця панелі);
-  • фланець = апертура +1.4/бік, товщина 1.4, СУЦІЛЬНИЙ, сидить у
-    фальці панелі (глибина 1.5, полиця 1.6) — кабелі тиснуть вставку
-    в панель, фланець упирається в дно фальца;
-  • знизу 2 ЖОРСТКІ язички (8×1.8) у кишені фальца — тиск ззовні
-    знизу тримає ГЕОМЕТРІЯ (23.07: губи фальца + «губки» фланця 22.07
-    видалені — «додає нависань, складності; зуби тримають і так»);
-  • зверху 2 ПРУЖНІ пальці (U-проріз 9×2.5 у плиті) з язичком-підйомом
-    на вільному кінці та КЛИН-бампом (рампа 45° до R1.2 над фланцем,
-    прямий уступ; історія: чверть-циліндр → клин 45° → 23.07
-    «потужніші зачепи» R0.9→1.2, язичок 5.0→6.5): клин тре по стелі
-    фальца (прогин 1.0, ε≈4.6%) і клацає в кишеню панелі —
-    зачеплення уступу 1.0, площа зрізу ~7.8 мм²/бамп;
-  • установка КАЧАННЯМ: нахил ~5°, язички вниз у кишені фальца →
-    докачати верх → клац пальців;
-  • виймання: плата знята → притиснути обидва пальці згори з тилу,
-    качнути верх назад, підняти.
-Порти (включно з TF — лише тут, у панелі його нема) — з P.IO_PORTS.
+24.07 РЕДИЗАЙН (примірка щитка+вставки на надрукованому корпусі):
+  • Суцільний фальц/фланець ВИДАЛЕНІ — полиця з'їдала стінку апертури, де
+    пупирки сталевого щитка мали тиснути. Тепер стінка апертури ПОВНА 3.0
+    (у панелі), а вставка = ПЛИТА на всю товщину (апертура−0.2), тримається
+    ДИСКРЕТНИМИ кріпленнями (2 язики знизу + 2 пружні пальці згори) у
+    локальних кишенях панелі між пупирками щитка.
+  • ПОЛЕ вставки ТОНШАЄ до 0.64 виїмкою З ЛИЦЯ (−99.4): у друці ROT_REAR
+    порожнина зверху → поле друкується від стола БЕЗ мостів; кабельні
+    обливки лягають у виїмку — «все як в оригінальній вставці».
+
+Тримання:
+  • НИЗ: 2 ЖОРСТКІ язики (8×1.8) у ЗАХОПНІ кишені (закриті −97.9/−96.3) —
+    тримають в ОБИДВА боки Y;
+  • ВЕРХ: 2 ПРУЖНІ пальці (U-проріз) з язичком-підйомом і КЛИН-бампом, що
+    клацає в НІШУ панелі (стеля=+Y стоп провалювання, передня стінка=−Y).
+Установка КАЧАННЯМ: язики вниз у захопні кишені → докачати верх → клац
+пальців у ніші. Виймання: плата знята → притиснути пальці, качнути, підняти.
+Порти (включно з TF — лише тут) — з P.IO_PORTS.
 Запуск: .venv/bin/python cad/io_insert.py  → out/io_insert.step/stl
-Вставка в координатах збірки; друк — ТИЛОМ вниз (23.07, рішення
-користувача): фланець (більший план) лежить на столі першим, носик
-зверху — кільце-навіс фланця 1.6/бік зникає ЗА ПОБУДОВОЮ (сходинки
-23.07 скасовані — вони лише зрізали опору фланця об дно фальца).
-Лишається дрібна прецедентна консоль: навіс клин-бампа ~0.68 на
-h0.64 (фаска 0.4 на вільному куті клина, 23.07 ч.4);
-лице = top-поверхня (косметика — опція ironing).
+Друк — ТИЛОМ вниз (ROT_REAR): плита лягає на стіл, порожнина поля зверху.
 """
 import math
 from build123d import *
@@ -44,9 +37,6 @@ def _rounded(poly, r, qs=8):
     return poly.buffer(-r).buffer(r, quad_segs=qs)
 
 
-# (⚠️ урок: helper з BuildLine усередині НЕ працює — build123d
-# скоуп-чутливий, об'єкти з викликаної функції не авто-додаються
-# в білдер; тому грані будуються інлайном, як у front.py)
 def _polys(geom):
     if geom.geom_type == 'Polygon':
         return [geom]
@@ -54,146 +44,110 @@ def _polys(geom):
 
 
 def _plans():
-    """2D-плани (X,Z): (nose, flange) з портами/прорізами вже вирізаними."""
+    """2D-плани (X,Z): flange (тил, −96.4..−97.9), nose (лице, −97.9..−99.4),
+    field (зона тоншання). Плита = апертура−0.2; язики/пальці = локальні
+    виступи ЛИШЕ на тиловому шарі (у кишені панелі)."""
     aper = _rounded(sg.box(P.IO_X[0], P.IO_Z[0], P.IO_X[1], P.IO_Z[1]),
                     P.INS_APER_R)
-    nose = aper.buffer(-P.INS_CLEAR, quad_segs=8)
-    flange = aper.buffer(P.INS_REBATE_W - P.INS_CLEAR, quad_segs=8)
-    # нижні жорсткі язички — частина фланця
-    for xc in P.INS_TAB_XC:
-        flange = flange.union(sg.box(
-            xc - P.INS_TAB_W / 2, P.IO_Z[0] - 1.4 - P.INS_TAB_H,
-            xc + P.INS_TAB_W / 2, P.IO_Z[0]))
+    plate = aper.buffer(-P.INS_CLEAR, quad_segs=8)      # апертура −0.2
+    ztop = P.IO_Z[1] - P.INS_CLEAR                       # верх плити 49.9
+    ztop_lip = P.IO_Z[1] + P.INS_REBATE_W - P.INS_CLEAR  # язичок над апертурою 51.5
 
-    # ── пружні пальці зверху: U-прорізи (крізь ОБИДВА шари) ──
-    ztop_n = P.IO_Z[1] - P.INS_CLEAR          # верх носика 49.9
-    ztop_f = P.IO_Z[1] + P.INS_REBATE_W - P.INS_CLEAR   # верх фланця 51.5
-    slits, lip_gaps = [], []
+    tabs, tips, slits, fing_keep = [], [], [], []
+    # нижні ЖОРСТКІ язики (виступ під нижню кромку апертури, у захопну
+    # кишеню); верх боксу +1 У плиту — низ плити 5.5 (апертура−0.2), а не 5.3
+    for xc in P.INS_TAB_XC:
+        tabs.append(sg.box(xc - P.INS_TAB_W / 2,
+                           P.IO_Z[0] - 1.4 - P.INS_TAB_H,
+                           xc + P.INS_TAB_W / 2, P.IO_Z[0] + 1.0))
+    # верхні ПРУЖНІ пальці: U-проріз (горизонт. під пальцем + вертик. на
+    # вільному кінці) + язичок-підйом над апертурою (несе клин-бамп)
     for xc, xd in zip(P.INS_TAB_XC, P.INS_DIMPLE_XC):
-        sgn = -1 if xc < 0 else +1            # вільний кінець назовні
+        sgn = -1 if xc < 0 else +1                      # вільний кінець назовні
         x_anchor = xc - sgn * P.INS_FING_L / 2
         x_free = xc + sgn * P.INS_FING_L / 2
-        zf0 = ztop_n - P.INS_FING_H           # низ пальця 47.4
-        # горизонтальний проріз під пальцем + вертикальний на кінці
+        zf0 = ztop - P.INS_FING_H
         slits.append(sg.box(min(x_anchor, x_free + sgn * P.INS_SLIT_W),
                             zf0 - P.INS_SLIT_W,
                             max(x_anchor, x_free + sgn * P.INS_SLIT_W), zf0))
         slits.append(sg.box(min(x_free, x_free + sgn * P.INS_SLIT_W), zf0,
                             max(x_free, x_free + sgn * P.INS_SLIT_W),
-                            ztop_f + 0.1))
-        # губа фланця над пальцем зрізається до верху носика, КРІМ
-        # язичка-підйому (несе бамп) — він лишається до ztop_f
-        tab0 = xd - P.INS_LIP_TAB_W / 2
-        tab1 = xd + P.INS_LIP_TAB_W / 2
-        span = sg.box(min(x_anchor, x_free), ztop_n,
-                      max(x_anchor, x_free), ztop_f + 0.1)
-        lip_gaps.append(span.difference(sg.box(tab0, ztop_n, tab1,
-                                               ztop_f + 0.1)))
+                            ztop + 0.1))
+        tips.append(sg.box(xd - P.INS_LIP_TAB_W / 2, ztop,
+                           xd + P.INS_LIP_TAB_W / 2, ztop_lip))
+        fing_keep.append(sg.box(min(x_anchor, x_free) - 1.0, zf0 - 1.0,
+                                max(x_anchor, x_free) + 1.0, ztop_lip))
 
     ports = unary_union(ioports.port_polys())
+    slitU = unary_union(slits)
+    flange = unary_union([plate] + tabs + tips).difference(ports)         .difference(slitU)
+    nose = plate.difference(ports).difference(slitU)
+    # зона тоншання (виїмка з лиця): поле − обідок портів − край − пальці
+    field = plate.buffer(-P.INS_FIELD_RIM, quad_segs=8)         .difference(ports.buffer(P.INS_FIELD_RIM))         .difference(unary_union(fing_keep) if fing_keep else sg.Polygon())
+    return nose, flange, field
 
-    # ── rhombille (09.07 фідбек: «зникли ромбілі — ми ж для вентиляції») —
-    # та сама ґратка/фаза, що була на панелі (s7, вершини кишень на лівій
-    # межі апертури) → патерн вставки продовжує патерн панелі навколо ──
-    s = P.PANEL_RHOMB_S
-    dxl = math.sqrt(3) * s
-    dyl = 1.5 * s
-    ero = P.RHOMB_T / 2 + P.RHOMB_R
-    _probe = sg.Polygon([(0, 0), (-s * math.cos(math.radians(30)), -s / 2),
-                         (0, -s), (s * math.cos(math.radians(30)), -s / 2)])         .buffer(-ero).buffer(P.RHOMB_R, quad_segs=8)
-    tip_inset = s * math.cos(math.radians(30)) - abs(_probe.bounds[0])
-    cx0 = P.IO_X[0] - tip_inset
-    cz0 = P.IO_Z[1] + P.PANEL_RIM + s / 2
-    port_pads = ports.buffer(1.5)          # обідок 1.5 = 3-4 периметри
-    fing_pads = unary_union(
-        [g.buffer(1.5) for g in slits]
-        + [sg.box(xd - P.INS_LIP_TAB_W / 2 - 1.5, ztop_n - 3.0,
-                  xd + P.INS_LIP_TAB_W / 2 + 1.5, ztop_f + 1)
-           for xd in P.INS_DIMPLE_XC])
-    field = aper.buffer(-1.7, quad_segs=8)         .difference(port_pads).difference(fing_pads)
-    fb = field.bounds
-    rhomb = []
-    for row in range(-int((cz0 - fb[1]) / dyl) - 2, 3):
-        for col in range(-3, int((fb[2] - cx0) / dxl) + 3):
-            hx = cx0 + col * dxl + (row % 2) * dxl / 2
-            hz = cz0 + row * dyl
-            V = [(hx + s * math.cos(math.radians(a)),
-                  hz + s * math.sin(math.radians(a)))
-                 for a in range(90, 450, 60)]
-            for k in (0, 2, 4):
-                rb = sg.Polygon([(hx, hz), V[k], V[k + 1], V[(k + 2) % 6]])
-                if not rb.intersects(field):
-                    continue
-                pk = rb.buffer(-ero).buffer(P.RHOMB_R, quad_segs=8)                        .intersection(field)
-                if rb.intersects(port_pads) or rb.intersects(fing_pads):
-                    pk = pk.buffer(-0.35).buffer(0.35, quad_segs=8)
-                for g in (pk.geoms if pk.geom_type != 'Polygon' else [pk]):
-                    if g.geom_type != 'Polygon' or g.area < 1.5                             or g.buffer(-0.45).is_empty:
-                        continue
-                    rhomb.append(g)
-    # «волосини»: стінки тонші 0.8 біля кіл портів → у сусідній виріз
-    mat = field.buffer(3.0).difference(unary_union(rhomb) if rhomb
-                                       else sg.Polygon())
-    hair = mat.difference(mat.buffer(-0.4).buffer(0.4, quad_segs=8))
-    for c in (hair.geoms if hair.geom_type != 'Polygon' else [hair]):
-        if c.geom_type == 'Polygon' and c.area < 5.0                 and c.intersects(field):
-            rhomb.append(c)
 
-    cut_all = ports.union(unary_union(slits + rhomb))
-    nose_pl = nose.difference(cut_all)
-    flange_pl = flange.difference(cut_all).difference(
-        unary_union(lip_gaps))
-    return nose_pl, flange_pl
+def _sketch_faces(sk_geom):
+    """shapely → список готових Sketch-граней (алгебра-режим).
+    Урок 09.07: BuildLine у ВИКЛИКАНІЙ функції не авто-додається у контекст
+    білдера — тому будуємо Polygon-об'єкти явно, а в build() add()-имо їх."""
+    out = []
+    for g in _polys(sk_geom):
+        if g.area < 0.3:
+            continue
+        coords = list(g.exterior.simplify(0.02).coords)[:-1]
+        if len(coords) < 3:
+            continue
+        f = Polygon(*coords, align=None)
+        for ring in g.interiors:
+            rp = sg.Polygon(ring)
+            if rp.area < 0.5:
+                continue
+            rc = list(rp.exterior.simplify(0.02).coords)[:-1]
+            if len(rc) < 3:
+                continue
+            f -= Polygon(*rc, align=None)
+        out.append(f)
+    return out
 
 
 def build():
-    nose_pl, flange_pl = _plans()
-    layers = ((flange_pl, 96.5, P.INS_FLANGE_T),   # фланець −96.5…−97.9
-              (nose_pl, 97.9, P.INS_NOSE_T))       # носик  −97.9…−99.3
+    nose_pl, flange_pl, field_pl = _plans()
+    layers = ((flange_pl, 96.4, 1.5),    # тил −96.4…−97.9 (язики/пальці тут)
+              (nose_pl, 97.9, 1.5))      # лице −97.9…−99.4
     with BuildPart() as ins:
         for plan, yoff, t in layers:
             with BuildSketch(Plane.XZ.offset(yoff)) as sk:
-                for g in _polys(plan):
-                    with BuildLine():
-                        Polyline(*list(g.exterior.simplify(0.02)
-                                       .coords)[:-1], close=True)
-                    make_face()
-                    for ring in g.interiors:
-                        rp = sg.Polygon(ring)
-                        if rp.area < 0.5:
-                            continue
-                        with BuildLine():
-                            Polyline(*list(rp.exterior.simplify(0.02)
-                                           .coords)[:-1], close=True)
-                        make_face(mode=Mode.SUBTRACT)
+                for f in _sketch_faces(plan):
+                    add(f)
             extrude(sk.sketch, amount=t)
-        # КЛИН-бампи на верхівках язичків (23.07; історія: чверть-
-        # циліндр R0.9 → клин 45° → «потужніші зачепи» R1.2):
-        # рампа 45° від (YC−R, ztop_f) тре по стелі фальца, прямий
-        # уступ на INS_BUMP_YC клацає в кишеню панелі (зачеплення за
-        # стелю 51.7 = 1.2 висоти уступу); база втоплена 0.4 у
-        # язичок (чистий fuse, не butt-стик).
-        # 23.07 ч.4 (провисання уступу): вільний кут клина зрізаний
-        # фаскою 45° (INS_BUMP_CHAMF) — перший навісний шар вужчає
-        # 1.2→0.8, петлі провисання лишаються в конверті фаски; верхівка
-        # клина = перетин рампи з фаскою (YC−c/2, ztop_f+R−c/2)
-        ztop_f = P.IO_Z[1] + P.INS_REBATE_W - P.INS_CLEAR
+
+        # ── ТОНШАННЯ ПОЛЯ: виїмка З ЛИЦЯ (−99.4) на глибину 3.0−0.64=2.36 →
+        # лишається 0.64 біля тилу; у друці ROT_REAR порожнина зверху ──
+        depth = P.INS_PLATE_T - P.INS_FIELD_T
+        with BuildSketch(Plane.XZ.offset(99.4 - depth)) as fk:
+            for f in _sketch_faces(field_pl):
+                add(f)
+        extrude(fk.sketch, amount=depth, mode=Mode.SUBTRACT)
+
+        # ── КЛИН-бампи на язичках пальців (клацають у ніші панелі): рампа
+        # 45° від (YC−R, ztop_lip) до уступу на INS_BUMP_YC; фаска 45° на
+        # вільному куті (перший навісний шар ROT_REAR); база 0.4 у язичок ──
+        ztop_lip = P.IO_Z[1] + P.INS_REBATE_W - P.INS_CLEAR
         ch = P.INS_BUMP_CHAMF
         for xd in P.INS_DIMPLE_XC:
             y0 = P.INS_BUMP_YC - P.INS_BUMP_R
             with BuildSketch(
                     Plane.YZ.offset(xd - P.INS_LIP_TAB_W / 2)) as wk:
                 with BuildLine():
-                    Polyline((y0, ztop_f - 0.4),
-                             (y0, ztop_f),
+                    Polyline((y0, ztop_lip - 0.4),
+                             (y0, ztop_lip),
                              (P.INS_BUMP_YC - ch / 2,
-                              ztop_f + P.INS_BUMP_R - ch / 2),
-                             (P.INS_BUMP_YC, ztop_f + P.INS_BUMP_R - ch),
-                             (P.INS_BUMP_YC, ztop_f - 0.4), close=True)
+                              ztop_lip + P.INS_BUMP_R - ch / 2),
+                             (P.INS_BUMP_YC, ztop_lip + P.INS_BUMP_R - ch),
+                             (P.INS_BUMP_YC, ztop_lip - 0.4), close=True)
                 make_face()
             extrude(wk.sketch, amount=P.INS_LIP_TAB_W)
-        # (23.07: «губки» низу фланця ВИДАЛЕНІ разом із губами фальца
-        # панелі — фланець знизу знову суцільний 1.4)
     return ins.part
 
 
