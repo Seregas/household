@@ -13,13 +13,19 @@ io_insert.py — ЗМІННА I/O-ВСТАВКА (09.07, ідея користу
     порожнина зверху → поле друкується від стола БЕЗ мостів; кабельні
     обливки лягають у виїмку — «все як в оригінальній вставці».
 
-Тримання:
+Тримання (схема користувача 24.07 ч.2):
   • НИЗ: 2 ЖОРСТКІ язики (8×1.8) у ЗАХОПНІ кишені (закриті −97.9/−96.3) —
     тримають в ОБИДВА боки Y;
-  • ВЕРХ: 2 ПРУЖНІ пальці (U-проріз) з язичком-підйомом і КЛИН-бампом, що
-    клацає в НІШУ панелі (стеля=+Y стоп провалювання, передня стінка=−Y).
-Установка КАЧАННЯМ: язики вниз у захопні кишені → докачати верх → клац
-пальців у ніші. Виймання: плата знята → притиснути пальці, качнути, підняти.
+  • ВЕРХ-тил: 2 ЖОРСТКІ зуби (INS_TAB_XC, тиловий шар, Z 49.9..51.5) у
+    ніші З ТИЛУ панелі — дно ніші (−98.05) = стоп від ВИПАДІННЯ (−Y);
+  • ВЕРХ-лице: 2 ПРУЖНІ наскрізні ЗУБЦІ (INS_HOOK_XC) на пальцях-балках
+    (U-проріз, гнуться ВНИЗ = у площині шарів ROT_REAR) — проходять крізь
+    апертуру, клацають у ніші-ЗАГЛИБЛЕННЯ НА ЛИЦІ панелі (зуб флаш з
+    лицем); дно ніші (−98.1) = стоп від ПРОВАЛЮВАННЯ (+Y).
+Установка КАЧАННЯМ: язики вниз у захопні кишені → докачати верх (жорсткі
+зуби входять у тилові ніші; кромка апертури тисне рампу зубця, палець
+прогинається вниз) → клац зубців у лицьові ніші. Виймання: плата знята →
+зсередини притиснути обидва пальці вниз, качнути верх назад, підняти.
 Порти (включно з TF — лише тут) — з P.IO_PORTS.
 Запуск: .venv/bin/python cad/io_insert.py  → out/io_insert.step/stl
 Друк — ТИЛОМ вниз (ROT_REAR): плита лягає на стіл, порожнина поля зверху.
@@ -60,23 +66,26 @@ def _plans():
         tabs.append(sg.box(xc - P.INS_TAB_W / 2,
                            P.IO_Z[0] - 1.4 - P.INS_TAB_H,
                            xc + P.INS_TAB_W / 2, P.IO_Z[0] + 1.0))
-    # верхні ПРУЖНІ пальці: U-проріз (горизонт. під пальцем + вертик. на
-    # вільному кінці) + язичок-підйом над апертурою (несе клин-бамп)
-    for xc, xd in zip(P.INS_TAB_XC, P.INS_DIMPLE_XC):
-        sgn = -1 if xc < 0 else +1                      # вільний кінець назовні
-        x_anchor = xc - sgn * P.INS_FING_L / 2
-        x_free = xc + sgn * P.INS_FING_L / 2
+        # верхні ЖОРСТКІ зуби (ті ж X, лише тиловий шар): у ніші з тилу
+        # панелі — дно ніші = стоп від випадіння назовні (−Y)
+        tips.append(sg.box(xc - P.INS_TAB_W / 2, ztop,
+                           xc + P.INS_TAB_W / 2, ztop_lip))
+    # верхні ПРУЖНІ пальці-балки (несуть наскрізні зубці, що клацають у
+    # ніші НА ЛИЦІ панелі): U-проріз = горизонтальний під балкою +
+    # вертикальний на вільному кінці; вільний кінець НАЗОВНІ
+    for xh in P.INS_HOOK_XC:
+        sgn = -1 if xh < 0 else +1
+        x_free = xh + sgn * (P.INS_HOOK_W / 2 + 0.25)   # 0.25 за край зубця
+        x_anchor = x_free - sgn * P.INS_FING_L
         zf0 = ztop - P.INS_FING_H
         slits.append(sg.box(min(x_anchor, x_free + sgn * P.INS_SLIT_W),
-                            zf0 - P.INS_SLIT_W,
+                            zf0 - P.INS_SLIT_H,
                             max(x_anchor, x_free + sgn * P.INS_SLIT_W), zf0))
         slits.append(sg.box(min(x_free, x_free + sgn * P.INS_SLIT_W), zf0,
                             max(x_free, x_free + sgn * P.INS_SLIT_W),
                             ztop + 0.1))
-        tips.append(sg.box(xd - P.INS_LIP_TAB_W / 2, ztop,
-                           xd + P.INS_LIP_TAB_W / 2, ztop_lip))
         fing_keep.append(sg.box(min(x_anchor, x_free) - 1.0, zf0 - 1.0,
-                                max(x_anchor, x_free) + 1.0, ztop_lip))
+                                max(x_anchor, x_free) + 1.0, ztop + 0.1))
 
     ports = unary_union(ioports.port_polys())
     slitU = unary_union(slits)
@@ -130,24 +139,25 @@ def build():
                 add(f)
         extrude(fk.sketch, amount=depth, mode=Mode.SUBTRACT)
 
-        # ── КЛИН-бампи на язичках пальців (клацають у ніші панелі): рампа
-        # 45° від (YC−R, ztop_lip) до уступу на INS_BUMP_YC; фаска 45° на
-        # вільному куті (перший навісний шар ROT_REAR); база 0.4 у язичок ──
-        ztop_lip = P.IO_Z[1] + P.INS_REBATE_W - P.INS_CLEAR
-        ch = P.INS_BUMP_CHAMF
-        for xd in P.INS_DIMPLE_XC:
-            y0 = P.INS_BUMP_YC - P.INS_BUMP_R
+        # ── НАСКРІЗНІ ЗУБЦІ на пальцях (клацають у ніші НА ЛИЦІ панелі):
+        # YZ-профіль на балці; передня грань ФЛАШ з лицем (−99.4), рампа-кам
+        # ~47° (низ спереду → верх ззаду: кромка апертури (−96.4, 50.1) при
+        # качанні тисне рампу → палець прогинається вниз); задня грань
+        # (−98.25) = стоп у дно ніші лиця; занурення 0.5 у балку ──
+        ztop = P.IO_Z[1] - P.INS_CLEAR                   # верх плити 49.9
+        yface = -99.4                                    # лице панелі
+        yr = yface + P.INS_HOOK_LEN                      # тил зубця −98.25
+        ztip = P.IO_Z[1] + P.INS_HOOK_ENG                # верх зубця 51.3
+        for xh in P.INS_HOOK_XC:
             with BuildSketch(
-                    Plane.YZ.offset(xd - P.INS_LIP_TAB_W / 2)) as wk:
+                    Plane.YZ.offset(xh - P.INS_HOOK_W / 2)) as wk:
                 with BuildLine():
-                    Polyline((y0, ztop_lip - 0.4),
-                             (y0, ztop_lip),
-                             (P.INS_BUMP_YC - ch / 2,
-                              ztop_lip + P.INS_BUMP_R - ch / 2),
-                             (P.INS_BUMP_YC, ztop_lip + P.INS_BUMP_R - ch),
-                             (P.INS_BUMP_YC, ztop_lip - 0.4), close=True)
+                    Polyline((yface, ztop - 0.5),
+                             (yface, ztip - 1.25),
+                             (yr, ztip),
+                             (yr, ztop - 0.5), close=True)
                 make_face()
-            extrude(wk.sketch, amount=P.INS_LIP_TAB_W)
+            extrude(wk.sketch, amount=P.INS_HOOK_W)
     return ins.part
 
 
