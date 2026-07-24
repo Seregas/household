@@ -1562,6 +1562,22 @@ P.* (фідбеки: «друкувати буду внутрішньою пов
   булевих — НЕЗАВЕРШЕНЕ проєктне питання (див. план п.1).
 
 **📋 ПЛАН НАСТУПНОЇ СЕСІЇ (нова папка; читати ПЕРШИМ):**
+0. **МІГРАЦІЯ ПАПКИ — перевірки ПЕРЕД будь-якою роботою:** сесія
+   переїжджає з `/Users/seregas/Projects/household/…` до
+   `/Volumes/Everything/Projects/household/…`. Спершу: (а) `pwd` — де
+   запущені? має бути `/Volumes/Everything/Projects/household/house/
+   home-servers/3d-modeling`; (б) `git log --oneline -3` — має бути
+   коміт **03214f4** (WIP редизайн I/O 24.07 ч.2) + наступні; якщо нема
+   — `git pull` (все запушено в github.com:Seregas/household.git);
+   (в) звірити робочі файли на місці: cad/params.py (INS_TAB_XC =
+   (−57, 63), INS_NAPLIV_* ВІДСУТНІ), cad/io_insert.py
+   (`_sketch_faces`), cad/front.py (дискретні кишені). (г) venv:
+   `.venv` у старій папці має абсолютні шляхи — з нової папки збірки
+   можуть не працювати; перевірити `.venv/bin/python -c "import
+   build123d"`, за потреби створити venv заново (`python3.14 -m venv
+   .venv && .venv/bin/python -m pip install build123d trimesh shapely
+   scipy matplotlib`). (д) поправити RDIR/шляхи в cad/remote-build.sh,
+   якщо користуємось mini.
 1. **Вхід у ніші бампів** (зараз закриті каверни, bodies=3): вирішити З
    КОРИСТУВАЧЕМ — відкрити до тилу −96.4 (бамп заходить качанням по
    тилу; втрачається задня стінка −96.9 як +Y стоп верху) АБО відкрити
