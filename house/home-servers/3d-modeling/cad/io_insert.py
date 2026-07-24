@@ -12,6 +12,11 @@ io_insert.py — ЗМІННА I/O-ВСТАВКА (09.07, ідея користу
   • ПОЛЕ вставки ТОНШАЄ до 0.64 виїмкою З ЛИЦЯ (−99.4): у друці ROT_REAR
     порожнина зверху → поле друкується від стола БЕЗ мостів; кабельні
     обливки лягають у виїмку — «все як в оригінальній вставці».
+  • 24.07 фідбек: повнотовщинна рамка ЛИШЕ по периметру вставки
+    (INS_FIELD_RIM), навколо портів НЕ треба — тоншання до самих портів;
+    поле знову з РОМБІЛЯМИ (наскрізна вентиляція, та сама ґратка/фаза
+    s7, що на панелі — патерн продовжується; обідок 1.5 навколо портів
+    лишається у ТОНКОМУ полі проти сліверів).
 
 Тримання (схема користувача 24.07 ч.2):
   • НИЗ: 2 ЖОРСТКІ язики (8×1.8) у ЗАХОПНІ кишені (закриті −97.9/−96.3) —
@@ -89,10 +94,62 @@ def _plans():
 
     ports = unary_union(ioports.port_polys())
     slitU = unary_union(slits)
-    flange = unary_union([plate] + tabs + tips).difference(ports)         .difference(slitU)
-    nose = plate.difference(ports).difference(slitU)
-    # зона тоншання (виїмка з лиця): поле − обідок портів − край − пальці
-    field = plate.buffer(-P.INS_FIELD_RIM, quad_segs=8)         .difference(ports.buffer(P.INS_FIELD_RIM))         .difference(unary_union(fing_keep) if fing_keep else sg.Polygon())
+    fingU = unary_union(fing_keep) if fing_keep else sg.Polygon()
+
+    # ── rhombille (панельна ґратка/фаза s7 — патерн продовжує панель;
+    # НЕ lattice.rhombille_holes: там стінковий RHOMB_S=8) ──
+    s = P.PANEL_RHOMB_S
+    dxl = math.sqrt(3) * s
+    dyl = 1.5 * s
+    ero = P.RHOMB_T / 2 + P.RHOMB_R
+    _probe = sg.Polygon([(0, 0), (-s * math.cos(math.radians(30)), -s / 2),
+                         (0, -s), (s * math.cos(math.radians(30)), -s / 2)])         .buffer(-ero).buffer(P.RHOMB_R, quad_segs=8)
+    tip_inset = s * math.cos(math.radians(30)) - abs(_probe.bounds[0])
+    cx0 = P.IO_X[0] - tip_inset
+    cz0 = P.IO_Z[1] + P.PANEL_RIM + s / 2
+    port_pads = ports.buffer(1.5)          # обідок 1.5 у ТОНКОМУ полі
+    fing_pads = fingU.buffer(1.0)
+    # патерн-зона на 0.5 углиб від рамки: кліп рівно по межі рамки давав
+    # нуль-товщинну стінку виріз↔стінка виїмки поля (watertight=False)
+    pat = plate.buffer(-(P.INS_FIELD_RIM + 0.5), quad_segs=8)         .difference(port_pads).difference(fing_pads)
+    pb = pat.bounds
+    rhomb = []
+    for row in range(-int((cz0 - pb[1]) / dyl) - 2, 3):
+        for col in range(-3, int((pb[2] - cx0) / dxl) + 3):
+            hx = cx0 + col * dxl + (row % 2) * dxl / 2
+            hz = cz0 + row * dyl
+            V = [(hx + s * math.cos(math.radians(a)),
+                  hz + s * math.sin(math.radians(a)))
+                 for a in range(90, 450, 60)]
+            for k in (0, 2, 4):
+                rb = sg.Polygon([(hx, hz), V[k], V[k + 1], V[(k + 2) % 6]])
+                if not rb.intersects(pat):
+                    continue
+                pk = rb.buffer(-ero).buffer(P.RHOMB_R, quad_segs=8)                        .intersection(pat)
+                if rb.intersects(port_pads) or rb.intersects(fing_pads):
+                    pk = pk.buffer(-0.35).buffer(0.35, quad_segs=8)
+                for g in _polys(pk):
+                    if g.area < 1.5 or g.buffer(-0.45).is_empty:
+                        continue
+                    rhomb.append(g)
+    # «волосини»: стінки тонші 0.8 біля кіл портів → у сусідній виріз
+    mat = pat.buffer(3.0).difference(unary_union(rhomb) if rhomb
+                                     else sg.Polygon())
+    hair = mat.difference(mat.buffer(-0.4).buffer(0.4, quad_segs=8))
+    for c in _polys(hair):
+        if c.area < 5.0 and c.intersects(pat):
+            rhomb.append(c)
+    rhombU = unary_union(rhomb) if rhomb else sg.Polygon()
+
+    cut_all = ports.union(slitU).union(rhombU)   # ромбілі НАСКРІЗЬ (обидва шари)
+    flange = unary_union([plate] + tabs + tips).difference(cut_all)
+    nose = plate.difference(cut_all)
+    # зона тоншання (виїмка з лиця): рамка ЛИШЕ по периметру — тоншання
+    # доходить до самих країв портів (24.07 фідбек). Порти НЕ виключаємо:
+    # вони вже наскрізні дірки (перекриття повітря нешкідливе), а
+    # `.difference(ports)` давав стінку виїмки, збіжну з стінкою порт-
+    # вирізу — два simplify() різних скетчів → сливери, watertight=False
+    field = plate.buffer(-P.INS_FIELD_RIM, quad_segs=8).difference(fingU)
     return nose, flange, field
 
 
