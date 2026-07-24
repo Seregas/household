@@ -426,6 +426,65 @@ def build():
             extrude(amount=P.STANDOFF_TOP_Z - P.FRAME_T + 1,
                     mode=Mode.SUBTRACT)
 
+        # ── 24.07: жертовні МЕМБРАНИ у RAM-вікнах + ФІНИ під колони ──
+        # (друк №3: «провисають отвори під пам'ять» — у FACE_DOWN верхні
+        # кромки вікон = мости 75/35мм. Мембрана MEM_T у центрі товщі
+        # інфілу Z0.6..1.4 з перфорацією → прольоти ≤12 між містками —
+        # замінює мальовані підтримки. Фіни підпирають найнижчі хорди
+        # лежачих колон (навіси 3.6-4.05 з probe_print). Після друку все
+        # викушується/виламується. ДОДАВАТИ ПІСЛЯ всіх різів вікон
+        # (z≥3.5 їх не чіпає) і після chamfer (не збити фільтр ребер).)
+        zm = P.INFILL_T / 2 - P.MEM_T / 2            # низ мембрани 0.6
+        for name, k in P.RAM_KEEPOUT.items():
+            wx0, wx1 = k['x']; wy0, wy1 = k['y']
+            mem = lattice.membrane2d(wx0, wy0, wx1, wy1, P.RAM_WIN_R)
+            if name == 'B':
+                # явний місток x=−68.3 на верхній кромці (генеричні
+                # позиції −70.3/−61.3/… не покривають фін S3 — його
+                # шари вище краю ядра висіли б у повітрі)
+                sx3 = P.STANDOFF_XY['S3'][0]
+                mem = mem.union(sg.box(
+                    sx3 - P.MEM_TAB_W / 2, wy1 - (P.MEM_SLIT + 1.0),
+                    sx3 + P.MEM_TAB_W / 2, wy1 + 0.5))
+            with BuildSketch(Plane.XY.offset(zm)) as msk:
+                for g in _polys(mem):
+                    with BuildLine():
+                        Polyline(*g.exterior.coords)
+                    make_face()
+            extrude(msk.sketch, amount=P.MEM_T)
+
+        # фіни S1/S2/S4 (collar-тип): лезо PED_FIN_T по X під нижньою
+        # хордою колони (y=cy−4.5), верх з зазором PED_FIN_GAP; анкер —
+        # вросток z2.5..3 у суцільний комірець ⌀17 (на x=cx±0.4 комірець
+        # сягає y=cy±8.49); виїмка знизу обходить галтель-кільце
+        # (кліренс ≥0.15 при z≈3.05); гіпотенуза 45° — ріст самонесучий
+        rr = P.STANDOFF_D / 2
+        for sname in ('S1', 'S2', 'S4'):
+            cx, cy = P.STANDOFF_XY[sname]
+            yt = cy - rr - P.PED_FIN_GAP             # верх = cy−4.65
+            with BuildSketch(Plane.YZ.offset(cx - P.PED_FIN_T / 2)) as fsk:
+                with BuildLine():
+                    Polyline((cy - 8.4, 2.5), (cy - 8.4, 3.2),
+                             (yt, 3.2 + (yt - (cy - 8.4))),   # 45° → 6.95
+                             (yt, 4.6), (cy - 5.65, 3.6),
+                             (cy - 5.65, 2.5), (cy - 8.4, 2.5))
+                make_face()
+            extrude(fsk.sketch, amount=P.PED_FIN_T)
+
+        # фін S3 — membrane-тип: колона зрізана вікном B (грань зрізу
+        # y=68.0, комірця під нею нема) → фін висить на мембрані
+        # (вросток z0.6..1.4), ріст 45°, верх 0.15 під гранню зрізу;
+        # шари вище краю ядра (y>67.1) анкеряться в явний місток вище
+        cx3 = P.STANDOFF_XY['S3'][0]
+        yb = P.RAM_KEEPOUT['B']['y'][1] + 0.1 - P.PED_FIN_GAP   # 67.85
+        with BuildSketch(Plane.YZ.offset(cx3 - P.PED_FIN_T / 2)) as f3k:
+            with BuildLine():
+                Polyline((yb - 5.6, zm), (yb - 5.6, zm + P.MEM_T),
+                         (yb, zm + P.MEM_T + 5.6), (yb, zm),
+                         (yb - 5.6, zm))
+            make_face()
+        extrude(f3k.sketch, amount=P.PED_FIN_T)
+
     return tray.part
 
 

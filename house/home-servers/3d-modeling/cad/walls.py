@@ -326,6 +326,23 @@ def build():
                 RectangleRounded(cy1 - cy0, cz1 - cz0, radius=P.COOLER_CUT_R)
         extrude(amount=P.WALL_T + 2)
     left = (left - cut.part).fix()   # .fix() після вирізу: інакше fuse
+
+    # ── жертовна МЕМБРАНА вирізу кулера (24.07, ідея користувача:
+    # «заповнити отвір — жорсткість збережеться»): у FACE_DOWN стінка =
+    # вертикальне лезо, виріз 85×15 розрізав його на 2 вільні стрічки →
+    # розхитування і падіння якості (друк №3). Мембрана MEM_T у ЦЕНТРІ
+    # товщі з'єднує береги на кожному шарі; перфорація по периметру —
+    # після друку викушується. Містки анкеряться в суцільний обідок 2.0.
+    mem2 = lattice.membrane2d(cy0, cz0, cy1, cz1, P.COOLER_CUT_R)
+    with BuildPart() as memc:
+        with BuildSketch(Plane.YZ.offset(
+                P.WALL_L_X + P.WALL_T / 2 - P.MEM_T / 2)) as ms:
+            for g in lattice._polys(mem2):
+                with BuildLine():
+                    Polyline(*g.exterior.coords)
+                make_face()
+        extrude(ms.sketch, amount=P.MEM_T)
+    left = (left + memc.part).fix()
     if P.PRINT_RIBS:
         # жертовні перемички вирізу кулера: міст 85мм → 3 прольоти по ~28
         with BuildPart() as ribs:
@@ -374,8 +391,14 @@ def build():
     Lr, Hr = 12.0, 5.0
     Rr = (Lr * Lr + Hr * Hr) / (2 * Hr)
     ys_ = P.REAR_Y - P.BEAD_W + 2.0 - Lr          # старт дуги (98.5)
+    # 24.07 (друк №3: «три нитки висіли» — кінцевий нахил дуги 45.2° на
+    # межі правила 45°): дуга лише до d=Dr (y=107.8, z=5.789 — ОПОРА
+    # БЛОКА 1:1: низ бази Z6 на y≤107.8 не рухається), далі ПРЯМА-січна
+    # до тої самої верхівки (110.5, 8.0) — нахил 39.3° замість 45.2°.
+    Dr = 9.3
     arcp = [(ys_ + d, 3.0 + Rr - math.sqrt(Rr * Rr - d * d))
-            for d in [Lr * k / 10 for k in range(11)]]
+            for d in [Dr * k / 8 for k in range(9)]]
+    arcp.append((ys_ + Lr, 8.0))
     with BuildPart() as rmp:
         with BuildSketch(Plane.YZ.offset(P.WALL_L_X + P.WALL_T - 0.4)) as rs:
             with BuildLine():
