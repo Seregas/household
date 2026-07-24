@@ -98,8 +98,11 @@ def _plans():
 
 def _sketch_faces(sk_geom):
     """shapely → список готових Sketch-граней (алгебра-режим).
-    Урок 09.07: BuildLine у ВИКЛИКАНІЙ функції не авто-додається у контекст
-    білдера — тому будуємо Polygon-об'єкти явно, а в build() add()-имо їх."""
+    ⚠️ Урок 24.07 (порти зникли!): Polygon() у ВИКЛИКАНІЙ функції при
+    АКТИВНОМУ BuildSketch АВТО-ДОДАЄТЬСЯ у контекст (стек глобальний) —
+    контури дірок доливались назад як ADD і вставка вийшла суцільною.
+    Тому всі проміжні Polygon — з mode=Mode.PRIVATE; у build() add()-имо
+    лише готові грані."""
     out = []
     for g in _polys(sk_geom):
         if g.area < 0.3:
@@ -107,7 +110,7 @@ def _sketch_faces(sk_geom):
         coords = list(g.exterior.simplify(0.02).coords)[:-1]
         if len(coords) < 3:
             continue
-        f = Polygon(*coords, align=None)
+        f = Polygon(*coords, align=None, mode=Mode.PRIVATE)
         for ring in g.interiors:
             rp = sg.Polygon(ring)
             if rp.area < 0.5:
@@ -115,7 +118,7 @@ def _sketch_faces(sk_geom):
             rc = list(rp.exterior.simplify(0.02).coords)[:-1]
             if len(rc) < 3:
                 continue
-            f -= Polygon(*rc, align=None)
+            f -= Polygon(*rc, align=None, mode=Mode.PRIVATE)
         out.append(f)
     return out
 

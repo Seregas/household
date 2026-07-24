@@ -59,7 +59,9 @@ def plan_geometry():
     # мікрофаза 0.11: після зсуву постаментів -5 (08.07) стінка суцільної
     # соти біля S4 збіглась із гранню іншого оператора (6 відкритих ребер
     # на X96.65) — зсув фази розбиває точні збіги, функційно нейтральний
-    cx0, cy0 = (x0 + x1) / 2 + 0.11, (y0 + y1) / 2
+    # 24.07 (flat-top): мікрофаза і по Y — горизонтальні грані сот збігались
+    # із межею зони корони на y79.30 (6 відкритих ребер, x85.02/−64.12)
+    cx0, cy0 = (x0 + x1) / 2 + 0.11, (y0 + y1) / 2 + 0.11
     # 20.07: СІТКА SNAP-FIT — симетричні пади комірок (слот + підмембранна
     # кишеня + обідок) у правій смузі, всі ряди × 2 колонки
     pads = unary_union(
@@ -74,10 +76,14 @@ def plan_geometry():
                                     P.RAM_WIN_R)
                            for k in P.RAM_KEEPOUT.values()])
 
+    # 24.07 (фідбек): FLAT-TOP по Y — у друці FACE_DOWN (вісь друку = +Y
+    # моделі) верх отвору = коротка ПЛОЩИНА-міст (~8-9мм ≤ правила 12),
+    # бічні грані 60° від горизонталі = самонесучі. Pointy-top (кути
+    # 90..450) давав стелі-навіси 60° від вертикалі — задирались.
     def hexp(cx, cy, R):
         return sg.Polygon([(cx + R * math.cos(math.radians(a)),
                             cy + R * math.sin(math.radians(a)))
-                           for a in range(90, 450, 60)])
+                           for a in range(60, 420, 60)])
 
     # ── коридори вікно↔рама (зазор < GAP_FILL): суцільні 2мм, без нічого ──
     corridors = []
@@ -105,13 +111,15 @@ def plan_geometry():
                             for x, y in P.ISO_FILL_XY])
     iso_hexes = []
     holes = []
-    ncol = int((x1 - x0) / dx) + 3
-    nrow = int((y1 - y0) / dy) + 3
+    # 24.07: ґратка ТРАНСПОНОВАНА під flat-top — колонки по X (крок dy),
+    # у колонці центри по Y (крок dx), стагер dx/2 через колонку
+    ncol = int((x1 - x0) / dy) + 3
+    nrow = int((y1 - y0) / dx) + 3
     cells = []                                  # центри комірок (для трикутників)
     for row in range(-nrow, nrow + 1):
         for col in range(-ncol, ncol + 1):
-            hx = cx0 + col * dx + (row % 2) * dx / 2
-            hy = cy0 + row * dy
+            hx = cx0 + col * dy
+            hy = cy0 + row * dx + (col % 2) * dx / 2
             cells.append((hx, hy))
             h = hexp(hx, hy, Rc)
             if not h.intersects(interior):
@@ -238,7 +246,7 @@ def plan_geometry():
     for (hx, hy) in cells:
         cell_pts = [(hx + Rcell * math.cos(math.radians(a)),
                      hy + Rcell * math.sin(math.radians(a)))
-                    for a in range(90, 450, 60)]
+                    for a in range(60, 420, 60)]
         for k in range(6):
             tri = sg.Polygon([(hx, hy), cell_pts[k], cell_pts[(k + 1) % 6]])
             if not tri.intersects(zone):
@@ -256,6 +264,12 @@ def plan_geometry():
                     pockets.append(g)
 
     from shapely import set_precision
+    # 24.07 (flat-top, 3 відкриті ребра @ (85.2, 79.41) z0..3): кишеня і
+    # крона ділять межу (кліп по pocket_region), але крона снапилась
+    # set_precision 0.01, а tri_pockets ішли в наскрізний різ НЕснапнуті
+    # (79.410 vs 79.413) → сливер-стінка. Снапимо кишені ДО обох вживань.
+    pockets = [g for p in pockets for g in _polys(set_precision(p, 0.01))
+               if g.area > 2.0]
     crown = set_precision(zone.difference(unary_union(pockets)), 0.01)
     crown_polys = [g for g in _polys(crown) if g.area > 3.0]
     holes = [g for h in holes for g in _polys(set_precision(h, 0.01))
