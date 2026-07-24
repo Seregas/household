@@ -205,17 +205,20 @@ def build(variant):
                 with Locations((rx, ymid, P.ADP_TON_Z0)):
                     Cone(0.1, P.ADP_RIB_R, 0.4,
                          align=(Align.CENTER, Align.CENTER, Align.MIN))
-        # скіс ПЕРЕДНЬОЇ грані язиків знизу (кінематика качання: при
-        # θ=6° передньо-нижній кут їде вперед 0.25 > зазору 0.15 до
-        # полиці кишені −98.0; вище z3.8 без скосу зсув 0.12 < 0.15) —
-        # грань відкинута назад 0.35 на низу, кут скосу ~18° ──
+        # скіс ПЕРЕДНЬОЇ грані язиків знизу (кінематика качання: нижні
+        # точки язика їдуть вперед на (5−z)·sinθ — нижче GRIP_Z грань
+        # відкинута назад, вище повна товщина = робочий ЗАЧЕП за
+        # полицею кишені. 24.07: GRIP 3.8→3.0 (зачеп 1.2→2.0, фідбек
+        # «ненадійно тримається»); фінальний нахил качання 6°→4°
+        # (на z3.0 зсув при 4° = 0.14 < зазору 0.15) ──
         yF = P.BODY_FRONT_Y - P.ADP_LAP_T                # −97.85
         wx0 = P.ADP_TON_XC[0] - P.ADP_TON_W / 2 - 0.5
         wx1 = P.ADP_TON_XC[-1] + P.ADP_TON_W / 2 + 0.5
         with BuildSketch(Plane.YZ.offset(wx0)) as tch:
             with BuildLine():
-                Polyline((yF - 0.1, 3.8), (yF - 0.1, P.ADP_TON_Z0 - 0.3),
-                         (yF + 0.35, P.ADP_TON_Z0 - 0.3), close=True)
+                Polyline((yF - 0.1, P.ADP_TON_GRIP_Z),
+                         (yF - 0.1, P.ADP_TON_Z0 - 0.3),
+                         (yF + 0.45, P.ADP_TON_Z0 - 0.3), close=True)
             make_face()
         extrude(tch.sketch, amount=wx1 - wx0, mode=Mode.SUBTRACT)
 

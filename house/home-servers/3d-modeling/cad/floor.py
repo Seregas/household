@@ -240,8 +240,14 @@ def plan_geometry():
     # різав лише СОТИ — наскрізні кишені корони-ізогріду він не чіпав, і
     # зсув ґратки 22.07 (крок 19.6→20.0) поставив кишені під підошву
     # дуги. Генеричний фікс: смуга виключається і з зони кишень.
-    pocket_region = zone.buffer(-2.0).difference(base_keep) \
-                        .difference(ramp_strip)
+    # 24.07 (фідбек «соти від рами −86.40, ізогрід від −84.82 —
+    # несправедливо; по боках теж»): кишені мають іти ДО РАМИ, як соти.
+    # buffer(−2.0) давав 2мм обідок і вздовж interior — розширюємо зону
+    # ЗА межу interior (смуга ззовні) перед ерозією, потім кліпаємо
+    # назад: обідок 2мм лишається лише вздовж вікон/коридорів/меж зони.
+    zone_ext = zone.union(zone.buffer(2.2).difference(interior))
+    pocket_region = zone_ext.buffer(-2.0).intersection(interior) \
+                            .difference(base_keep).difference(ramp_strip)
     pockets = []
     for (hx, hy) in cells:
         cell_pts = [(hx + Rcell * math.cos(math.radians(a)),
@@ -272,6 +278,15 @@ def plan_geometry():
                if g.area > 2.0]
     crown = set_precision(zone.difference(unary_union(pockets)), 0.01)
     crown_polys = [g for g in _polys(crown) if g.area > 3.0]
+    # 24.07 (фідбек «артефакт видалити −36.60/38.40/3.00»): морф-
+    # відкриття лишає ІЗОЛЬОВАНУ кляксу зони між вирізами вікон A і B
+    # (area ~11, за 28мм від решти крон; buffer(−2) порожній → кишень
+    # нема → суцільна 3мм-пляма посеред 2мм мембрани). Каркас = великі
+    # крони; дрібні фрагменти лишаємо ЛИШЕ якщо прилягають до каркасу.
+    _big = [g for g in crown_polys if g.area >= 15.0]
+    _big_u = unary_union(_big)
+    crown_polys = _big + [g for g in crown_polys
+                          if g.area < 15.0 and g.distance(_big_u) <= 2.0]
     holes = [g for h in holes for g in _polys(set_precision(h, 0.01))
              if g.area > 1.0]
     return holes, crown_polys, pockets
