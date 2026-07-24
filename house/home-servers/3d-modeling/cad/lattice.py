@@ -96,13 +96,14 @@ def iso_holes(field, anchor_u, anchor_v):
     return _cleanup(field, tris)
 
 
-def membrane2d(u0, v0, u1, v1, r):
+def membrane2d(u0, v0, u1, v1, r, open_side=None):
     """Жертовна МЕМБРАНА у вікні (u0,v0)-(u1,v1) з кутами R=r (24.07):
     ядро = вікно.buffer(−MEM_SLIT) — перфораційна щілина по периметру;
-    містки MEM_TAB_W кожні ~MEM_TAB_PITCH на всіх 4 сторонах перекривають
-    щілину (0.5 у тіло за вікном + вросток 1.0 у ядро). Повертає полігон
-    (u,v); екструдувати на MEM_T у центрі товщі стінки/дна. Після друку
-    викушується по перфорації «як поштова марка»."""
+    містки MEM_TAB_W кожні ~MEM_TAB_PITCH перекривають щілину (0.5 у тіло
+    за вікном + вросток 1.0 у ядро). open_side ('u0'/'u1'/'v0'/'v1') —
+    сторона БЕЗ прямих містків (24.07 ч.4: кромку-стелю тримають косинки
+    45° на позиціях flag_spots, не плоскі містки). Повертає полігон (u,v).
+    Після друку викушується по перфорації «як поштова марка»."""
     win = sg.box(u0 + r, v0 + r, u1 - r, v1 - r).buffer(r, quad_segs=16)
     core = win.buffer(-P.MEM_SLIT)
 
@@ -115,12 +116,24 @@ def membrane2d(u0, v0, u1, v1, r):
     ein = P.MEM_SLIT + 1.0            # вросток у ядро за щілиною
     tabs = []
     for u in spots(u0, u1):
-        tabs.append(sg.box(u - w, v0 - 0.5, u + w, v0 + ein))
-        tabs.append(sg.box(u - w, v1 - ein, u + w, v1 + 0.5))
+        if open_side != 'v0':
+            tabs.append(sg.box(u - w, v0 - 0.5, u + w, v0 + ein))
+        if open_side != 'v1':
+            tabs.append(sg.box(u - w, v1 - ein, u + w, v1 + 0.5))
     for v in spots(v0, v1):
-        tabs.append(sg.box(u0 - 0.5, v - w, u0 + ein, v + w))
-        tabs.append(sg.box(u1 - ein, v - w, u1 + 0.5, v + w))
+        if open_side != 'u0':
+            tabs.append(sg.box(u0 - 0.5, v - w, u0 + ein, v + w))
+        if open_side != 'u1':
+            tabs.append(sg.box(u1 - ein, v - w, u1 + 0.5, v + w))
     return unary_union([core] + tabs)
+
+
+def flag_spots(a0, a1):
+    """Позиції косинок 45° уздовж відкритої кромки вікна (24.07 ч.4):
+    рівномірно з кроком ~MEM_FLAG_PITCH, відступ 3.0 від кутів."""
+    lo, hi = a0 + 3.0, a1 - 3.0
+    n = max(2, int(math.ceil((hi - lo) / P.MEM_FLAG_PITCH)) + 1)
+    return [lo + (hi - lo) * k / (n - 1) for k in range(n)]
 
 
 def rhombille_holes(field, anchor_u, anchor_v):

@@ -457,30 +457,84 @@ def build():
 
         # ── 24.07: жертовні МЕМБРАНИ у RAM-вікнах + ФІНИ під колони ──
         # (друк №3: «провисають отвори під пам'ять» — у FACE_DOWN верхні
-        # кромки вікон = мости 75/35мм. Мембрана MEM_T у центрі товщі
-        # інфілу Z0.6..1.4 з перфорацією → прольоти ≤12 між містками —
-        # замінює мальовані підтримки. Фіни підпирають найнижчі хорди
-        # лежачих колон (навіси 3.6-4.05 з probe_print). Після друку все
-        # викушується/виламується. ДОДАВАТИ ПІСЛЯ всіх різів вікон
-        # (z≥3.5 їх не чіпає) і після chamfer (не збити фільтр ребер).)
-        zm = P.INFILL_T / 2 - P.MEM_T / 2            # низ мембрани 0.6
+        # кромки вікон = мости 75/35мм. Після друку все викушується/
+        # виламується. ДОДАВАТИ ПІСЛЯ всіх різів вікон (z≥3.5 їх не
+        # чіпає) і після chamfer (не збити фільтр ребер).)
+        # 24.07 ч.4 — ГОФРА («жорсткість у площині згину, не в
+        # стискання»): мембрана MEM_T=0.5 хвиляста — синус середньої
+        # лінії ±MEM_WAVE_A уздовж довгої осі вікна, конверт Z0.5..1.5
+        # у товщі інфілу 2.0. Побудова: призма конверта (футпринт
+        # membrane2d) ∩ хвиляста плита — бічні/нижні містки стають
+        # хвилястими автоматично. Верхня кромка (стеля FACE_DOWN) без
+        # прямих містків — КОСИНКИ 45° кожні ~MEM_FLAG_PITCH: старт на
+        # фазі хвилі товщиною MEM_T, розширення 45° по ±Z до повної
+        # товщі інфілу, вросток 0.5 у тіло за кромкою. Прольоти стелі
+        # ~11 → ~2.5-4.5 мм.
+        zc = P.INFILL_T / 2                       # серединна площина 1.0
+        env0 = zc - P.MEM_T / 2 - P.MEM_WAVE_A    # конверт гофри 0.5
+        env1 = zc + P.MEM_T / 2 + P.MEM_WAVE_A    #               1.5
         for name, k in P.RAM_KEEPOUT.items():
             wx0, wx1 = k['x']; wy0, wy1 = k['y']
-            mem = lattice.membrane2d(wx0, wy0, wx1, wy1, P.RAM_WIN_R)
-            if name == 'B':
-                # явний місток x=−68.3 на верхній кромці (генеричні
-                # позиції −70.3/−61.3/… не покривають фін S3 — його
-                # шари вище краю ядра висіли б у повітрі)
-                sx3 = P.STANDOFF_XY['S3'][0]
-                mem = mem.union(sg.box(
-                    sx3 - P.MEM_TAB_W / 2, wy1 - (P.MEM_SLIT + 1.0),
-                    sx3 + P.MEM_TAB_W / 2, wy1 + 0.5))
-            with BuildSketch(Plane.XY.offset(zm)) as msk:
+            mem = lattice.membrane2d(wx0, wy0, wx1, wy1, P.RAM_WIN_R,
+                                     open_side='v1')
+            with BuildSketch(Plane.XY.offset(env0),
+                             mode=Mode.PRIVATE) as psk:
                 for g in _polys(mem):
                     with BuildLine():
                         Polyline(*g.exterior.coords)
                     make_face()
-            extrude(msk.sketch, amount=P.MEM_T)
+            prism = extrude(psk.sketch, amount=env1 - env0,
+                            mode=Mode.PRIVATE)
+
+            along_x = (wx1 - wx0) >= (wy1 - wy0)  # A: по x; B: по y
+            a0 = (wx0 if along_x else wy0) - 1.0
+            a1 = (wx1 if along_x else wy1) + 1.0
+
+            def zmid(a, a0=a0):
+                return zc + P.MEM_WAVE_A * math.sin(
+                    2 * math.pi * (a - a0) / P.MEM_WAVE_P)
+
+            ns = int(math.ceil((a1 - a0) / 0.5))
+            samp = [a0 + (a1 - a0) * i / ns for i in range(ns + 1)]
+            top = [(a, zmid(a) + P.MEM_T / 2) for a in samp]
+            bot = [(a, zmid(a) - P.MEM_T / 2) for a in reversed(samp)]
+            if along_x:
+                wpl = Plane.XZ.offset(-(wy1 + 1.0))   # площина y=wy1+1
+                wamt = wy1 - wy0 + 2.0                # екструзія → wy0−1
+            else:
+                wpl = Plane.YZ.offset(wx0 - 1.0)
+                wamt = wx1 - wx0 + 2.0
+            with BuildSketch(wpl, mode=Mode.PRIVATE) as wsk:
+                with BuildLine():
+                    Polyline(*(top + bot + [top[0]]))
+                make_face()
+            wave = extrude(wsk.sketch, amount=wamt, mode=Mode.PRIVATE)
+            add(prism & wave)
+
+            # косинки 45° на верхній кромці (стеля вікна у FACE_DOWN);
+            # для B найближча позиція → на вісь S3 (анкер фіна — його
+            # шари вище краю ядра висіли б у повітрі)
+            xs = lattice.flag_spots(wx0, wx1)
+            if name == 'B':
+                sx3 = P.STANDOFF_XY['S3'][0]
+                i = min(range(len(xs)), key=lambda j: abs(xs[j] - sx3))
+                xs[i] = sx3
+            y0f = wy1 - 2.0
+            for u in xs:
+                zf = zmid(u) if along_x else zmid(y0f)
+                zlo, zhi = zf - P.MEM_T / 2, zf + P.MEM_T / 2
+                with BuildSketch(Plane.YZ.offset(u - P.MEM_FLAG_W / 2),
+                                 mode=Mode.PRIVATE) as fk:
+                    with BuildLine():
+                        Polyline((y0f, zlo), (y0f, zhi),
+                                 (y0f + (P.INFILL_T - zhi), P.INFILL_T),
+                                 (wy1 + 0.5, P.INFILL_T),
+                                 (wy1 + 0.5, 0.0),
+                                 (y0f + zlo, 0.0),
+                                 (y0f, zlo))
+                    make_face()
+                add(extrude(fk.sketch, amount=P.MEM_FLAG_W,
+                            mode=Mode.PRIVATE))
 
         # фіни S1/S2/S4 (collar-тип): лезо PED_FIN_T по X під нижньою
         # хордою колони (y=cy−4.5), верх з зазором PED_FIN_GAP; анкер —
@@ -501,16 +555,18 @@ def build():
             extrude(fsk.sketch, amount=P.PED_FIN_T)
 
         # фін S3 — membrane-тип: колона зрізана вікном B (грань зрізу
-        # y=68.0, комірця під нею нема) → фін висить на мембрані
-        # (вросток z0.6..1.4), ріст 45°, верх 0.15 під гранню зрізу;
-        # шари вище краю ядра (y>67.1) анкеряться в явний місток вище
+        # y=68.0, комірця під нею нема) → фін висить на гофро-мембрані:
+        # пояс вростка = ПОВНИЙ конверт гофри ±0.1 (0.4..1.6 — ловить
+        # хвилю на будь-якій фазі), ріст 45°, верх 0.15 під гранню
+        # зрізу; шари вище краю ядра анкеряться в косинку на осі S3
         cx3 = P.STANDOFF_XY['S3'][0]
         yb = P.RAM_KEEPOUT['B']['y'][1] + 0.1 - P.PED_FIN_GAP   # 67.85
+        fin_lo, fin_hi = env0 - 0.1, env1 + 0.1                 # 0.4..1.6
         with BuildSketch(Plane.YZ.offset(cx3 - P.PED_FIN_T / 2)) as f3k:
             with BuildLine():
-                Polyline((yb - 5.6, zm), (yb - 5.6, zm + P.MEM_T),
-                         (yb, zm + P.MEM_T + 5.6), (yb, zm),
-                         (yb - 5.6, zm))
+                Polyline((yb - 5.6, fin_lo), (yb - 5.6, fin_hi),
+                         (yb, fin_hi + 5.6), (yb, fin_lo),
+                         (yb - 5.6, fin_lo))
             make_face()
         extrude(f3k.sketch, amount=P.PED_FIN_T)
 

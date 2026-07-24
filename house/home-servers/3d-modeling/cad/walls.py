@@ -330,19 +330,60 @@ def build():
     # ── жертовна МЕМБРАНА вирізу кулера (24.07, ідея користувача:
     # «заповнити отвір — жорсткість збережеться»): у FACE_DOWN стінка =
     # вертикальне лезо, виріз 85×15 розрізав його на 2 вільні стрічки →
-    # розхитування і падіння якості (друк №3). Мембрана MEM_T у ЦЕНТРІ
-    # товщі з'єднує береги на кожному шарі; перфорація по периметру —
+    # розхитування і падіння якості (друк №3). Перфорація по периметру —
     # після друку викушується. Містки анкеряться в суцільний обідок 2.0.
-    mem2 = lattice.membrane2d(cy0, cz0, cy1, cz1, P.COOLER_CUT_R)
+    # 24.07 ч.4 — ГОФРА: мембрана MEM_T=0.5 хвиляста по X (синус ±A
+    # уздовж Y, конверт у товщі стінки) — жорсткість у площині згину
+    # леза; верхня кромка (+Y = стеля у FACE_DOWN) без прямих містків —
+    # КОСИНКИ 45° по ±X (прольоти стелі ~2.5 між ними).
+    xc = P.WALL_L_X + P.WALL_T / 2
+    ex0 = xc - P.MEM_T / 2 - P.MEM_WAVE_A
+    ex1 = xc + P.MEM_T / 2 + P.MEM_WAVE_A
+    mem2 = lattice.membrane2d(cy0, cz0, cy1, cz1, P.COOLER_CUT_R,
+                              open_side='u1')
     with BuildPart() as memc:
-        with BuildSketch(Plane.YZ.offset(
-                P.WALL_L_X + P.WALL_T / 2 - P.MEM_T / 2)) as ms:
+        with BuildSketch(Plane.YZ.offset(ex0)) as ms:
             for g in lattice._polys(mem2):
                 with BuildLine():
                     Polyline(*g.exterior.coords)
                 make_face()
-        extrude(ms.sketch, amount=P.MEM_T)
-    left = (left + memc.part).fix()
+        extrude(ms.sketch, amount=ex1 - ex0)
+    a0w = cy0 - 1.0
+
+    def xmid(y):
+        return xc + P.MEM_WAVE_A * math.sin(
+            2 * math.pi * (y - a0w) / P.MEM_WAVE_P)
+
+    nw = int(math.ceil((cy1 + 1.0 - a0w) / 0.5))
+    samp = [a0w + (cy1 + 1.0 - a0w) * i / nw for i in range(nw + 1)]
+    east = [(xmid(y) + P.MEM_T / 2, y) for y in samp]
+    west = [(xmid(y) - P.MEM_T / 2, y) for y in reversed(samp)]
+    with BuildPart() as wavp:
+        with BuildSketch(Plane.XY.offset(cz0 - 1.0)) as ws:
+            with BuildLine():
+                Polyline(*(east + west + [east[0]]))
+            make_face()
+        extrude(ws.sketch, amount=cz1 - cz0 + 2.0)
+    memp = memc.part & wavp.part
+
+    y0f = cy1 - 2.0
+    xf = xmid(y0f)
+    xlo, xhi = xf - P.MEM_T / 2, xf + P.MEM_T / 2
+    wl, wh = P.WALL_L_X, P.WALL_L_X + P.WALL_T
+    for zf in lattice.flag_spots(cz0, cz1):
+        with BuildPart() as fp:
+            with BuildSketch(Plane.XY.offset(zf - P.MEM_FLAG_W / 2)) as fs:
+                with BuildLine():
+                    Polyline((xlo, y0f), (xhi, y0f),
+                             (wh, y0f + (wh - xhi)),
+                             (wh, cy1 + 0.5),
+                             (wl, cy1 + 0.5),
+                             (wl, y0f + (xlo - wl)),
+                             (xlo, y0f))
+                make_face()
+            extrude(fs.sketch, amount=P.MEM_FLAG_W)
+        memp = memp + fp.part
+    left = (left + memp).fix()
     if P.PRINT_RIBS:
         # жертовні перемички вирізу кулера: міст 85мм → 3 прольоти по ~28
         with BuildPart() as ribs:
