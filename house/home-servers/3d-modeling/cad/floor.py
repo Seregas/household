@@ -15,6 +15,7 @@ import math
 from build123d import *
 import shapely.geometry as sg
 from shapely.ops import unary_union
+from shapely.affinity import translate
 import params as P
 import lattice
 from exporter import save
@@ -277,6 +278,15 @@ def plan_geometry():
     pockets = [g for p in pockets for g in _polys(set_precision(p, 0.01))
                if g.area > 2.0]
     crown = set_precision(zone.difference(unary_union(pockets)), 0.01)
+    # 25.07: зріз гачка-коми ноги ребра ізогріду біля рами (WEDGE_TRIM_XY)
+    if P.WEDGE_TRIM_XY:
+        _wc = []
+        for (wx, wy) in P.WEDGE_TRIM_XY:
+            s = -1.0 if wx < 0 else 1.0        # дзеркало за знаком X
+            _wc.append(sg.Polygon([(wx - 2.6 * s, wy - 0.74),
+                                    (wx + 0.9 * s, wy - 0.74),
+                                    (wx + 0.9 * s, wy + 1.46)]))
+        crown = crown.difference(unary_union(_wc))
     crown_polys = [g for g in _polys(crown) if g.area > 3.0]
     # 24.07 (фідбек «артефакт видалити −36.60/38.40/3.00»): морф-
     # відкриття лишає ІЗОЛЬОВАНУ кляксу зони між вирізами вікон A і B
@@ -287,6 +297,34 @@ def plan_geometry():
     _big_u = unary_union(_big)
     crown_polys = _big + [g for g in crown_polys
                           if g.area < 15.0 and g.distance(_big_u) <= 2.0]
+    # 24.07 ч.5 (наказ: «заливку стільниками та ізогрідами посунути далі
+    # на 1-1.5 мм — тоді ті нависання зникнуть»): флет-стелі сот (міст
+    # ~9.65 у FACE_DOWN), на які ВПРИТУЛ (зазор 0.00) сідає 3мм-масив
+    # зверху (крона/ізогрід, трамплін-смуга, ободок вікна), друкуються з
+    # задиранням — масив стартує рівно на кромці мосту. ВІДСУВАЄМО СОТИ
+    # від усіх повнотовщинних структур на CLR у −y (нижче в друці): між
+    # сотою і масивом лишається смуга 2мм-мембрани, міст сідає на опору.
+    # Зсув ФАЗИ ґратки НЕ працює (соти кліпляться самими структурами —
+    # ramp_strip і ободок вікон — незалежно від фази); тому ВІДСТУП.
+    # ⚠️ ЗАДНЯ трамплін-крона (суцільна на всю ширину, y≥97.3) з zsweep
+    # ВИКЛЮЧЕНА: її нижня кромка лежить над сотою на всю ширину, і відступ
+    # соти вниз лишав 1.5мм-смугу мембрани, що ЗВИСАЄ над отвором →
+    # 6 островів @ y95.8 (probe_print). Там крона сидить на короткій
+    # мембрані як у базлайні. Відсуваємо соти лише від КРОН ПОСТАМЕНТІВ
+    # (y<94 — навколо них мембрана прилягає збоку, звису нема) і кутів
+    # RAM-вікон (кола RIM+CLR).
+    _clr = P.FILL_RETREAT
+    _zone_ped = zone.intersection(sg.box(-200, -200, 200, 94.0))
+    _retreat = unary_union([
+        unary_union([translate(_zone_ped, yoff=-_clr * k / 10)
+                     for k in range(1, 11)]),
+        unary_union([sg.Point(cx, cy).buffer(P.RAM_WIN_RIM + _clr, 32)
+                     for (cx, cy) in (
+                         (_ra["x"][0], _ra["y"][1]), (_ra["x"][1], _ra["y"][1]),
+                         (_rb["x"][0], _rb["y"][1]), (_rb["x"][1], _rb["y"][1]))]),
+    ])
+    holes = [g for h in holes for g in _polys(h.difference(_retreat))
+             if g.area > 10.0 and not g.buffer(-0.6).is_empty]
     holes = [g for h in holes for g in _polys(set_precision(h, 0.01))
              if g.area > 1.0]
     return holes, crown_polys, pockets
