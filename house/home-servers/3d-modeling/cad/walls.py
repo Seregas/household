@@ -366,20 +366,21 @@ def build():
         extrude(ws.sketch, amount=cz1 - cz0 + 2.0)
     memp = memc.part & wavp.part
 
-    y0f = cy1 - 2.0
-    xf = xmid(y0f)
-    xlo, xhi = xf - P.MEM_T / 2, xf + P.MEM_T / 2
+    # ФІНИ-плавники на кромці cy1 (стеля вирізу у FACE_DOWN) — 25.07:
+    # старт із конверта гофри (ex0..ex1), плавний перехід до повної товщі
+    # стінки за MEM_FLAG_RUN (~7°), вросток 0.5 у тіло за кромкою.
+    y0f = cy1 - P.MEM_FLAG_RUN
     wl, wh = P.WALL_L_X, P.WALL_L_X + P.WALL_T
     for zf in lattice.flag_spots(cz0, cz1):
         with BuildPart() as fp:
             with BuildSketch(Plane.XY.offset(zf - P.MEM_FLAG_W / 2)) as fs:
                 with BuildLine():
-                    Polyline((xlo, y0f), (xhi, y0f),
-                             (wh, y0f + (wh - xhi)),
+                    Polyline((ex0, y0f), (ex1, y0f),
+                             (wh, cy1),
                              (wh, cy1 + 0.5),
                              (wl, cy1 + 0.5),
-                             (wl, y0f + (xlo - wl)),
-                             (xlo, y0f))
+                             (wl, cy1),
+                             (ex0, y0f))
                 make_face()
             extrude(fs.sketch, amount=P.MEM_FLAG_W)
         memp = memp + fp.part

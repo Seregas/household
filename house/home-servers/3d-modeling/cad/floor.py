@@ -504,10 +504,11 @@ def build():
         # у товщі інфілу 2.0. Побудова: призма конверта (футпринт
         # membrane2d) ∩ хвиляста плита — бічні/нижні містки стають
         # хвилястими автоматично. Верхня кромка (стеля FACE_DOWN) без
-        # прямих містків — КОСИНКИ 45° кожні ~MEM_FLAG_PITCH: старт на
-        # фазі хвилі товщиною MEM_T, розширення 45° по ±Z до повної
-        # товщі інфілу, вросток 0.5 у тіло за кромкою. Прольоти стелі
-        # ~11 → ~2.5-4.5 мм.
+        # прямих містків — ФІНИ-ПЛАВНИКИ кожні ~MEM_FLAG_PITCH (25.07,
+        # раніше короткі косинки 45°): лезо MEM_FLAG_W, що виростає з
+        # конверта гофри і за MEM_FLAG_RUN (~7°) вливається у повну
+        # товщу інфілу, вросток 0.5 у тіло за кромкою. Прольоти стелі
+        # ~11 → ~5.8 мм.
         zc = P.INFILL_T / 2                       # серединна площина 1.0
         env0 = zc - P.MEM_T / 2 - P.MEM_WAVE_A    # конверт гофри 0.5
         env1 = zc + P.MEM_T / 2 + P.MEM_WAVE_A    #               1.5
@@ -549,27 +550,30 @@ def build():
             wave = extrude(wsk.sketch, amount=wamt, mode=Mode.PRIVATE)
             add(prism & wave)
 
-            # косинки 45° на верхній кромці (стеля вікна у FACE_DOWN);
+            # ФІНИ-плавники на верхній кромці (стеля вікна у FACE_DOWN);
             # для B найближча позиція → на вісь S3 (анкер фіна — його
-            # шари вище краю ядра висіли б у повітрі)
+            # шари вище краю ядра висіли б у повітрі).
+            # 25.07: старт = ВЕСЬ конверт гофри (env0..env1) — фін
+            # гарантовано зростається з мембраною, де б не була фаза
+            # хвилі (для B хвиля йде вздовж y, тобто вздовж самого фіна);
+            # далі перехід до повної товщі за MEM_FLAG_RUN (~7°) і
+            # вросток 0.5 у тіло за кромкою.
             xs = lattice.flag_spots(wx0, wx1)
             if name == 'B':
                 sx3 = P.STANDOFF_XY['S3'][0]
                 i = min(range(len(xs)), key=lambda j: abs(xs[j] - sx3))
                 xs[i] = sx3
-            y0f = wy1 - 2.0
+            y0f = wy1 - P.MEM_FLAG_RUN
             for u in xs:
-                zf = zmid(u) if along_x else zmid(y0f)
-                zlo, zhi = zf - P.MEM_T / 2, zf + P.MEM_T / 2
                 with BuildSketch(Plane.YZ.offset(u - P.MEM_FLAG_W / 2),
                                  mode=Mode.PRIVATE) as fk:
                     with BuildLine():
-                        Polyline((y0f, zlo), (y0f, zhi),
-                                 (y0f + (P.INFILL_T - zhi), P.INFILL_T),
+                        Polyline((y0f, env0), (y0f, env1),
+                                 (wy1, P.INFILL_T),
                                  (wy1 + 0.5, P.INFILL_T),
                                  (wy1 + 0.5, 0.0),
-                                 (y0f + zlo, 0.0),
-                                 (y0f, zlo))
+                                 (wy1, 0.0),
+                                 (y0f, env0))
                     make_face()
                 add(extrude(fk.sketch, amount=P.MEM_FLAG_W,
                             mode=Mode.PRIVATE))
