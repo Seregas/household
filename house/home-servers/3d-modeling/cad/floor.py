@@ -203,10 +203,23 @@ def plan_geometry():
     # закінчується на y67.9 (модуля там уже нема), а morph opening
     # лишав у куті гачок-завиток. Доливаємо зону явно — кутова латка
     # до стандартного відступу 0.5 від вікон (як у решти зони).
-    _corner = sg.box(-45.0, _rb["y"][1] + 0.2, -33.0, 79.0)
+    # 27.07 (фідбек −33.80/75.95/3.00): правий край латки −33.0 був
+    # ДОВІЛЬНИЙ — таб корони стирчав 0.5 ЗА межу смужки між вікнами
+    # (різ вище: _rb.x1−0.2) і обривався посеред мембрани прямокутною
+    # сходинкою. Край латки = край смужки: межа корони — одна пряма.
+    _corner = sg.box(-45.0, _rb["y"][1] + 0.2, _rb["x"][1] - 0.2, 79.0)
     zone = zone.union(solid.intersection(_corner)
                       .difference(windows.buffer(0.5))
                       .difference(voids.buffer(0.08)))
+    # 27.07 (та сама точка): ПРАВІШЕ латки morph-межа зони блукала
+    # коридором над вікном A — язик до x−33.6 з гачком + горбик до
+    # y80 під стінкою соти, обрив посеред мембрани. Зріз по вертикалі
+    # x = лівий край смужки: межа корони = продовження лінії смужки
+    # вгору; низ сідає на дугу 0.5 кута вікна A, верх — на нижню
+    # стінку соти (y≈79.6). Верх/право — literal з запасом (вище/правіше
+    # корони там немає, ріже лише язик+горбик).
+    zone = zone.difference(sg.box(_rb["x"][1] - 0.2, _ra["y"][1] - 1.0,
+                                  -30.0, 81.0))
     # 17.07: залиті соти (ISO_FILL_XY) — у зону ізогріду; обідок 2мм по
     # межі дає сам pocket_region (zone.buffer(-2.0) нижче)
     if iso_hexes:
@@ -339,19 +352,35 @@ def plan_geometry():
     _crown_u = unary_union([sg.Polygon(g.exterior) for g in crown_polys])
     _zone_ped = _crown_u.intersection(sg.box(-200, -200, 200, 94.0))
     _belt = windows.buffer(P.RAM_WIN_RIM + _clr)
-    _retreat = unary_union([
-        unary_union([translate(_zone_ped, yoff=-_clr * k / 10)
-                     for k in range(1, 11)]),
-        _belt,
-    ])
+    # 27.07 («переглянь ще раз дно — забагато дефектів у тих само
+    # місцях»): ЧАСТКОВИЙ різ retreat-стеком крон постаментів лишав
+    # 2мм клини і смуги мембрани змінної ширини вздовж зигзага межі
+    # (71.1/90.6, 67.1/76.6 + автодетект ще ~13 сот з обгризеними
+    # кромками) — точкові латки цей клас не лікують. Правило тепер
+    # ЄДИНЕ, у прийнятому стилі «межа сідає на ребра патерна» (кутова
+    # латка 23.07 ч.5, пояс d122383): соту, чию ВЕРХНЮ КРОМКУ (весь
+    # flat-top сегмент, не лише один кут) накриває крона+стек,
+    # ЗАЛИВАЄМО цілком; решту сот стек НЕ ріже ВЗАГАЛІ (крона над
+    # їхніми мостами не нависає — кромки в друці безпечні). Пояс
+    # вікон лишається 1:1 (рівний прямий ободок — прийнятий вигляд).
+    _ped_sweep = unary_union([translate(_zone_ped, yoff=-_clr * k / 10)
+                              for k in range(0, 11)])
+
+    def _top_edge(h):
+        ty = max(c[1] for c in h.exterior.coords)
+        tops = [c for c in h.exterior.coords if c[1] > ty - 0.3]
+        return sg.LineString([min(tops), max(tops)]) if len(tops) > 1 \
+            else sg.Point(tops[0])
 
     def _top_in_belt(h):
         tx, ty = max(h.exterior.coords, key=lambda c: c[1])
         return _belt.covers(sg.Point(tx, ty))
 
     holes = [g for h in holes
-             if not (h.intersects(_belt) and _top_in_belt(h))
-             for g in _polys(h.difference(_retreat))
+             if not ((h.intersects(_belt) and _top_in_belt(h))
+                     or (h.intersects(_ped_sweep)
+                         and _ped_sweep.intersects(_top_edge(h))))
+             for g in _polys(h.difference(_belt))
              if g.area > 10.0 and not g.buffer(-0.6).is_empty]
     holes = [g for h in holes for g in _polys(set_precision(h, 0.01))
              if g.area > 1.0]
