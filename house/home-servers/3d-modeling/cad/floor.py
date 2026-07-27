@@ -247,8 +247,13 @@ def plan_geometry():
     # ЗА межу interior (смуга ззовні) перед ерозією, потім кліпаємо
     # назад: обідок 2мм лишається лише вздовж вікон/коридорів/меж зони.
     zone_ext = zone.union(zone.buffer(2.2).difference(interior))
+    # 25.07 («Системний пояс», п.3): кишені НЕ ріжуться ближче 0.5 до
+    # відкритих сот — ребра ізогріду обривались посеред отвору соти
+    # («нависає над 2мм стільниками, некрасиво висить пластик»); межа
+    # корони, що межує з сотою, лишається суцільною смугою.
     pocket_region = zone_ext.buffer(-2.0).intersection(interior) \
-                            .difference(base_keep).difference(ramp_strip)
+                            .difference(base_keep).difference(ramp_strip) \
+                            .difference(unary_union(holes).buffer(0.5))
     pockets = []
     for (hx, hy) in cells:
         cell_pts = [(hx + Rcell * math.cos(math.radians(a)),
@@ -313,17 +318,40 @@ def plan_geometry():
     # мембрані як у базлайні. Відсуваємо соти лише від КРОН ПОСТАМЕНТІВ
     # (y<94 — навколо них мембрана прилягає збоку, звису нема) і кутів
     # RAM-вікон (кола RIM+CLR).
+    # 25.07 (фідбек ×6 точок, «Системний пояс»): (а) band будувати з
+    # ВІДФІЛЬТРОВАНИХ crown_polys, НЕ з сирої zone — сира містила
+    # видалену кляксу між вікнами (фантомна хвиляста виїмка у верхній
+    # кромці соти на (−35.9, 36.2), якої не пояснювала жодна крона);
+    # кишені заливаємо (Polygon(exterior)) — важить лише зовнішня межа;
+    # (б) 4 кола R3.5 на верхніх кутах вікон («незрозумілі кружочки» +
+    # непокриті НИЖНІ кути з дуговими кромками обідка над сотами) →
+    # суцільний пояс windows.buffer(RIM+CLR) по ВСЬОМУ периметру:
+    # рівномірно ширший обідок замість випадкових латок.
+    # 27.07 (зонд probe_belt): НИЖНЯ кромка пояса — та сама «звисаюча
+    # смуга» (прецедент задньої трамплін-крони вище): пряма кромка
+    # windows.buffer під вікном лягала на відкриті отвори сот мостом до
+    # ~19.5 (>12) на лезі 2мм. Фікс у стилі кутової латки 23.07 ч.5
+    # («межа проступає в патерні»): соти, зрізані поясом ЗВЕРХУ
+    # (верхівка соти в поясі), ЗАЛИВАЮТЬСЯ цілком — кромка пояса завжди
+    # сідає на ребра патерна; соти збоку/зверху вікна (верхівка поза
+    # поясом) ріжуться як були (їхні кромки в друці безпечні).
     _clr = P.FILL_RETREAT
-    _zone_ped = zone.intersection(sg.box(-200, -200, 200, 94.0))
+    _crown_u = unary_union([sg.Polygon(g.exterior) for g in crown_polys])
+    _zone_ped = _crown_u.intersection(sg.box(-200, -200, 200, 94.0))
+    _belt = windows.buffer(P.RAM_WIN_RIM + _clr)
     _retreat = unary_union([
         unary_union([translate(_zone_ped, yoff=-_clr * k / 10)
                      for k in range(1, 11)]),
-        unary_union([sg.Point(cx, cy).buffer(P.RAM_WIN_RIM + _clr, 32)
-                     for (cx, cy) in (
-                         (_ra["x"][0], _ra["y"][1]), (_ra["x"][1], _ra["y"][1]),
-                         (_rb["x"][0], _rb["y"][1]), (_rb["x"][1], _rb["y"][1]))]),
+        _belt,
     ])
-    holes = [g for h in holes for g in _polys(h.difference(_retreat))
+
+    def _top_in_belt(h):
+        tx, ty = max(h.exterior.coords, key=lambda c: c[1])
+        return _belt.covers(sg.Point(tx, ty))
+
+    holes = [g for h in holes
+             if not (h.intersects(_belt) and _top_in_belt(h))
+             for g in _polys(h.difference(_retreat))
              if g.area > 10.0 and not g.buffer(-0.6).is_empty]
     holes = [g for h in holes for g in _polys(set_precision(h, 0.01))
              if g.area > 1.0]
@@ -516,12 +544,37 @@ def build():
             wx0, wx1 = k['x']; wy0, wy1 = k['y']
             mem = lattice.membrane2d(wx0, wy0, wx1, wy1, P.RAM_WIN_R,
                                      open_side='v1')
+            # позиції фінів рахуємо ДО патерна — keep-смуги мають
+            # збігтися з реальними (для B — після снапу на вісь S3)
+            xs = lattice.flag_spots(wx0, wx1)
+            if name == 'B':
+                sx3 = P.STANDOFF_XY['S3'][0]
+                i = min(range(len(xs)), key=lambda j: abs(xs[j] - sx3))
+                xs[i] = sx3
+            # 25.07 — дрібний ізогрід («Ізогрід дрібний», вибір
+            # користувача): наскрізні трикутники з 2D-футпринта ДО
+            # призми — наскрізність через prism ∩ wave автоматична.
+            # keep: смуги під коренями фінів-плавників (лезо 0.8 має
+            # виростати з суцільної мембрани, не з ребра патерна) і під
+            # поясом вростка фіна S3 (вікно B).
+            keep = [sg.box(u - 1.5, wy1 - P.MEM_FLAG_RUN - 1.0,
+                           u + 1.5, wy1) for u in xs]
+            if name == 'B':
+                keep.append(sg.box(sx3 - 1.5, wy1 - 7.0,
+                                   sx3 + 1.5, wy1))
+            iso = lattice.mem_iso_holes(mem, keep)
+            if iso:
+                mem = mem.difference(unary_union(iso))
             with BuildSketch(Plane.XY.offset(env0),
                              mode=Mode.PRIVATE) as psk:
                 for g in _polys(mem):
                     with BuildLine():
                         Polyline(*g.exterior.coords)
                     make_face()
+                    for hg in g.interiors:
+                        with BuildLine():
+                            Polyline(*hg.coords)
+                        make_face(mode=Mode.SUBTRACT)
             prism = extrude(psk.sketch, amount=env1 - env0,
                             mode=Mode.PRIVATE)
 
@@ -558,11 +611,7 @@ def build():
             # хвилі (для B хвиля йде вздовж y, тобто вздовж самого фіна);
             # далі перехід до повної товщі за MEM_FLAG_RUN (~7°) і
             # вросток 0.5 у тіло за кромкою.
-            xs = lattice.flag_spots(wx0, wx1)
-            if name == 'B':
-                sx3 = P.STANDOFF_XY['S3'][0]
-                i = min(range(len(xs)), key=lambda j: abs(xs[j] - sx3))
-                xs[i] = sx3
+            # (xs пораховано вище, до патерна — keep-смуги збігаються)
             y0f = wy1 - P.MEM_FLAG_RUN
             for u in xs:
                 with BuildSketch(Plane.YZ.offset(u - P.MEM_FLAG_W / 2),

@@ -128,6 +128,45 @@ def membrane2d(u0, v0, u1, v1, r, open_side=None):
     return unary_union([core] + tabs)
 
 
+def mem_iso_holes(mem, keep=()):
+    """Дрібний ізогрід жертовної мембрани (25.07, «візерунок для красоти
+    і щоб можна було не вирізати»): наскрізні рівносторонні трикутники
+    MEM_ISO_A, ребро MEM_ISO_T, кути MEM_ISO_R; суцільний обідок
+    MEM_ISO_RIM від межі мембрани; keep — суцільні смуги (під
+    фіни-плавники / фін S3). Лише ЦІЛІ трикутники (within регіону) —
+    рівний патерн без обрізків. Бази вздовж u (модельний X = горизонталь
+    друку FACE_DOWN) → діагоналі 30° від вертикалі самонесучі; стелі
+    «апекс-вниз» = мости ~3.5 на лезі 0.5 (жертовна деталь — прецедент
+    ізогріду стінок). Ґратка центрована на bounds мембрани."""
+    region = mem.buffer(-P.MEM_ISO_RIM)
+    if keep:
+        region = region.difference(unary_union(list(keep)))
+    a = P.MEM_ISO_A
+    h = a * math.sqrt(3) / 2
+    ero = P.MEM_ISO_T / 2 + P.MEM_ISO_R
+    u0b, v0b, u1b, v1b = mem.bounds
+    cu, cv = (u0b + u1b) / 2, (v0b + v1b) / 2
+    ncol = int((u1b - u0b) / a) + 2
+    nrow = int((v1b - v0b) / h) + 2
+    tris = []
+    for row in range(-nrow, nrow + 1):
+        v0 = cv + row * h
+        stag = (row % 2) * a / 2
+        for col in range(-ncol, ncol + 1):
+            u0 = cu + col * a + stag
+            tU = sg.Polygon([(u0, v0), (u0 + a, v0),
+                             (u0 + a / 2, v0 + h)])
+            tD = sg.Polygon([(u0 + a / 2, v0 + h),
+                             (u0 + 3 * a / 2, v0 + h), (u0 + a, v0)])
+            for tri in (tU, tD):
+                if not tri.intersects(region):
+                    continue
+                pk = tri.buffer(-ero).buffer(P.MEM_ISO_R, quad_segs=8)
+                if not pk.is_empty and pk.within(region):
+                    tris.append(pk)
+    return tris
+
+
 def flag_spots(a0, a1):
     """Позиції косинок 45° уздовж відкритої кромки вікна (24.07 ч.4):
     рівномірно з кроком ~MEM_FLAG_PITCH, відступ 3.0 від кутів."""
