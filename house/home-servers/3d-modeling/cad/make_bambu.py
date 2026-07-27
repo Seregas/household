@@ -96,6 +96,11 @@ ROT_Y90 = (0, 0, 1, 0, 1, 0, -1, 0, 0)
 # поверхнею (top-шари, не гладке від стола) — див. пам'ятку.
 ROT_REAR = (1, 0, 0, 0, 0, -1, 0, 1, 0)
 
+# 1U БЖ+KVM (27.07): ЛИЦЕМ НА СТІЛ, як задумано в psu_kvm.py (лице =
+# площина Z0, тіло вглиб −Z): x'=x, y'=−y, z'=−z — тунель БЖ, колиска
+# JetKVM і ромбілі ростуть угору від плити-лиця; висота друку 52
+ROT_X180 = (1, 0, 0, 0, -1, 0, 0, 0, -1)
+
 PLATE_STRIDE = 270.35   # крок пластин (знято з сейвів користувача)
 
 
@@ -260,6 +265,17 @@ PROJECTS = {
              {"brim_type": "auto_brim", "brim_width": "3"})])],
         over={"layer_height": "0.16", "wall_loops": "2",
               "outer_wall_speed": "50",
+              "brim_type": "no_brim"},
+    ),
+    # 27.07: 1U юніт Flex-БЖ + JetKVM (psu_kvm.py) — лицем на стіл;
+    # профіль корпусу (тонкостінка: плита 3 + ромбілі s7 + тунель 1.7 +
+    # колиска KVM), висота лише 52 → травел-акселерація шаблонна
+    "print_psu": dict(
+        plates=[dict(name="1U БЖ+KVM (лицем вниз)", objects=[
+            ("psu_kvm.stl", "PSU_KVM_1U", ROT_X180, (0.0, 0.0), {})])],
+        over={"layer_height": "0.24", "wall_loops": "2",
+              "sparse_infill_density": "8%",
+              "sparse_infill_pattern": "grid",
               "brim_type": "no_brim"},
     ),
     "print_small": dict(
