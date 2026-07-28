@@ -15,6 +15,7 @@ walls.py — параметричні БІЧНІ СТІНКИ + БОРТИКИ (
 import math
 from build123d import *
 import shapely.geometry as sg
+from shapely.ops import transform as sh_transform, unary_union
 import params as P
 import lattice
 from exporter import save
@@ -341,12 +342,31 @@ def build():
     ex1 = xc + P.MEM_T / 2 + P.MEM_WAVE_A
     mem2 = lattice.membrane2d(cy0, cz0, cy1, cz1, P.COOLER_CUT_R,
                               open_side='u1')
+    # 28.07 — дрібний ізогрід (симетрія з RAM-мембранами дна 25.07;
+    # аргумент користувача: мембрана жертовна → перфорація = економія
+    # пластику, потоку не душить — все одно викушується). mem_iso_holes
+    # кладе бази трикутників уздовж u; тут u = Y моделі = ВИСОТА друку
+    # FACE_DOWN → патерн рахуємо у СВОПНУТИХ координатах (z, y): бази
+    # лягають уздовж модельного Z (горизонталь друку), діагоналі 30° від
+    # вертикалі самонесучі (урок орієнтації ізогріду стінок 23.07 ч.4).
+    # keep — смуги під коренями фінів-плавників (лезо 0.8 виростає з
+    # суцільної мембрани, не з ребра патерна) — у свопнутих координатах.
+    _sw = lambda g: sh_transform(lambda a, b: (b, a), g)
+    keep = [sg.box(zf - 1.5, cy1 - P.MEM_FLAG_RUN - 1.0, zf + 1.5, cy1)
+            for zf in lattice.flag_spots(cz0, cz1)]
+    iso = lattice.mem_iso_holes(_sw(mem2), keep)
+    if iso:
+        mem2 = mem2.difference(unary_union([_sw(t) for t in iso]))
     with BuildPart() as memc:
         with BuildSketch(Plane.YZ.offset(ex0)) as ms:
             for g in lattice._polys(mem2):
                 with BuildLine():
                     Polyline(*g.exterior.coords)
                 make_face()
+                for hg in g.interiors:
+                    with BuildLine():
+                        Polyline(*hg.coords)
+                    make_face(mode=Mode.SUBTRACT)
         extrude(ms.sketch, amount=ex1 - ex0)
     a0w = cy0 - 1.0
 
