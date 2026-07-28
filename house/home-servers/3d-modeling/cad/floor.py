@@ -21,6 +21,8 @@ import lattice
 from exporter import save
 
 AMIN = (Align.CENTER, Align.CENTER, Align.MIN)
+SKIRT_N = 10          # сходинок 45°-спідниці крони (h = TRI_RIB_H/N = 0.1)
+ORPHAN_MIN = 0.5      # мін. частка кишені в ЗАЛИТІЙ короні (фільтр сиріт)
 
 # (лінзи-пупирки переїхали в ssd_block.py разом з усією SSD-геометрією)
 
@@ -227,15 +229,22 @@ def plan_geometry():
         mx = (xl + xr) / 2
         probe = sg.box(mx - 0.6, ty + 0.1, mx + 0.6, ty + 2.6)
         top_h = 2.6 if hu_fin.intersects(probe) else _clr
-        y0 = ty - 0.1
+        y0 = ty - 1.5
         y1 = min(ty + top_h, ty + (xr - xl) / 2 * _slope60 - 0.05)
-        if y1 <= y0:
+        if y1 <= ty - 0.1:
             continue
-        fest.append(sg.Polygon([
+        f = sg.Polygon([
             (xl + (y0 - ty) / _slope60, y0),
             (xr - (y0 - ty) / _slope60, y0),
             (xr - (y1 - ty) / _slope60, y1),
-            (xl + (y1 - ty) / _slope60, y1)]).buffer(0))
+            (xl + (y1 - ty) / _slope60, y1)]).buffer(0)
+        # 28.07 («нормальні закруглення на краях»): opening R0.6 —
+        # верхні кути фестона заокруглені; низ подовжено В отвір соти
+        # (ty−1.5, боки колінеарні стінкам 60° — трапеція сидить точно
+        # на лініях патерну), щоб радіуси НИЖНІХ кутів потонули в
+        # отворі й не лишали мікро-клаптів крони на верхніх кутах соти
+        fr = f.buffer(-0.6, quad_segs=8).buffer(0.6, quad_segs=8)
+        fest.append(fr if not fr.is_empty else f)
     fest = unary_union(fest) if fest else sg.Polygon()
 
     # ── зони постаментів: морф. відкриття прибирає 2мм-павутину ──
@@ -264,11 +273,14 @@ def plan_geometry():
     # поставило смугу крони з кишенями в поясі під вікном A. Пояс
     # RIM+CLR під вікнами — чиста 2мм мембрана (як і задумано
     # фестонами): зона ріжеться явно, обидва вікна.
+    # 28.07 ч.2 (фідбек «ізогрід на куті вікна A — прибрати», фрагмент
+    # 40..48/38..48): пояс був вузький по x (±1.5) — морф-клапоть за
+    # правим краєм вікна лишався. Ширина поясу по x = та сама
+    # RIM+CLR+0.6, що і вниз.
+    _bw = P.RAM_WIN_RIM + P.FILL_RETREAT + 0.6
     for k in P.RAM_KEEPOUT.values():
         kx0, kx1 = k['x']; ky0 = k['y'][0]
-        zone = zone.difference(sg.box(
-            kx0 - 1.5, ky0 - P.RAM_WIN_RIM - P.FILL_RETREAT - 0.6,
-            kx1 + 1.5, ky0))
+        zone = zone.difference(sg.box(kx0 - _bw, ky0 - _bw, kx1 + _bw, ky0))
     # 08.07 (п.6): смужка МІЖ RAM-вікнами (модулі там прилягають один до
     # одного і звисають до Z2.55) — корону/ізогрід (3мм) тут НЕ робити,
     # лишається 2мм заливка; по всій глибині вікна A
@@ -379,6 +391,14 @@ def plan_geometry():
     # (79.410 vs 79.413) → сливер-стінка. Снапимо кишені ДО обох вживань.
     pockets = [g for p in pockets for g in _polys(set_precision(p, 0.01))
                if g.area > 2.0]
+    # 28.07 (острів FACE_DOWN z162.84 @S4): нижня ДОТИЧНА комірця ⌀17
+    # (cx, cy−keep_r) опинилась ПОСЕРЕД кишені (крок ґратки 19.5 після
+    # HEX_RIB 1.5) → вістря дуги комірця стартувало в повітрі над
+    # наскрізною кишенею. Генерично: кишені під дотичними видаляються
+    # ДО crown — крона заповнює трикутник, вістря має повну опору.
+    _tang = [sg.Point(x, y - keep_r) for x, y in P.STANDOFF_XY.values()]
+    pockets = [p for p in pockets
+               if all(t.distance(p) > 0.3 for t in _tang)]
     crown = set_precision(zone.difference(unary_union(pockets)), 0.01)
     # 27.07→28.07: нога ребра ізогріду біля рами — ПО ПАТЕРНУ
     # (WEDGE_LEG_PTS). Історія: фаска 32° (клин-слівер+кома+горбик) →
@@ -441,22 +461,71 @@ def plan_geometry():
                     .intersection(hu_fin.buffer(0.1, quad_segs=8))),
         0.01)
     crown_polys = [g for g in _polys(crown) if g.area > 3.0]
-    # 24.07 (фідбек «артефакт видалити −36.60/38.40/3.00»): морф-
-    # відкриття лишає ІЗОЛЬОВАНУ кляксу зони між вирізами вікон A і B
-    # (area ~11, за 28мм від решти крон; buffer(−2) порожній → кишень
-    # нема → суцільна 3мм-пляма посеред 2мм мембрани). Каркас = великі
-    # крони; дрібні фрагменти лишаємо ЛИШЕ якщо прилягають до каркасу.
-    _big = [g for g in crown_polys if g.area >= 15.0]
-    _big_u = unary_union(_big)
-    crown_polys = _big + [g for g in crown_polys
-                          if g.area < 15.0 and g.distance(_big_u) <= 2.0]
+    # 24.07 (фідбек «артефакт видалити −36.60/38.40/3.00») → 28.07
+    # («какаха» −37.78/38.26): поріг area≥15 пропускав ізольовані
+    # морф-клякси, щойно вони виростали за 15. Каркас тепер ЯКІРНИЙ:
+    # компонент лишається, якщо тримається постаментів (pads) або
+    # рами (rim); дрібне — лише впритул (≤2.0) до каркасу.
+    _anch = [g for g in crown_polys
+             if g.intersects(pads) or g.intersects(rim)]
+    _anch_u = unary_union(_anch)
+    crown_polys = _anch + [
+        g for g in crown_polys
+        if not (g.intersects(pads) or g.intersects(rim))
+        and g.distance(_anch_u) <= 2.0]
     # 27.07 (варіант А): соти віддаються ЯК Є (belt-trimmed holes_fin
     # згори; заливок і стек-різів більше нема — історію 24.07 ч.5
     # «відступ сот» і 27.07 «сота цілком» замінили фестони крони +
     # механіка Б опускання сот під вікнами, див. коменти вище)
     holes = [g for h in holes_fin for g in _polys(set_precision(h, 0.01))
              if g.area > 1.0]
-    return holes, crown_polys, pockets
+    # 28.07 (фідбек): ребра ОСТАННЬОГО ряду сот (y≈98.09) — БЕЗ ізогріду:
+    # кишені, що зачіпають ці 4 ребра, видаляються (крона там суцільна,
+    # мембрана під ними теж — наскрізний різ цих кишень не робиться)
+    _no_iso = unary_union([sg.box(x - 4.5, 95.6, x + 4.5, 100.6)
+                           for x in (-41.18, -6.98, 27.60, 62.14)])
+    pockets = [p for p in pockets if not p.intersects(_no_iso)]
+    # 28.07 (закон зв'язків): кишені-СИРОТИ — чия крона зрізана якірним
+    # фільтром чи поясом RAM — видаляються (перфорувати нічого; їхній
+    # наскрізний різ у стеку спідниці давав OCC invalid-тіло → падав
+    # chamfer постаментів). Кишені = ДІРИ у crown_polys → порівнювати
+    # із ЗАЛИТИМ контуром крони (лише exterior), не з самою кроною.
+    _cu = unary_union(crown_polys)
+    _cu_fill = unary_union([sg.Polygon(g.exterior) for g in crown_polys])
+    pockets = [p for p in pockets
+               if p.intersection(_cu_fill).area > ORPHAN_MIN * p.area]
+    # 28.07 («всі переходи 2→3 мм по зет — під 45°»): футпринт СПІДНИЦІ
+    # крони. Кишені ЗАЛИТІ (нахил їхніх інтеріорів роздув би вікна
+    # вгорі — ребра 1.5 стали б лезами); розширення 1.2 (> нахил 1.0)
+    # у РАМУ (difference(interior) — рампа тоне в суцільній рамі 0..3)
+    # і в СОТИ (intersection(hu_fin) — наскрізний різ сот у build()
+    # зрізає до flush-стінки). Голими лишаються ЛИШЕ межі до мембрани
+    # (вікна/коридори/фестони/пояси) → саме там 45°-схил.
+    fp = unary_union(crown_polys + pockets)
+    fp = fp.union(fp.buffer(1.2, quad_segs=8).difference(interior))
+    fp = fp.union(fp.buffer(1.2, quad_segs=8).intersection(hu_fin))
+    # компоненти-СИРОТИ (кишені крон, видалених якірним фільтром) геть —
+    # інакше висіли б крихтами Z2..3 у повітрі (їх все одно зрізав би
+    # наскрізний різ, але OCC на них дає invalid-тіла)
+    fp = unary_union([g for g in _polys(set_precision(fp, 0.01))
+                      if g.area > 3.0 and g.intersects(_cu)])
+    # 45° СХОДИНКАМИ h=TRI_RIB_H/SKIRT_N (справжній extrude(taper=45)
+    # на цих контурах падає: OCC MakeOffset → Null TopoDS_Shape на
+    # невипуклих мульти-кільцевих межах; shapely buffer(−i·h) робить
+    # ті самі offset-рівні надійно, злиття/розпади кілець включно.
+    # Сходинка 0.1 < сопло 0.4 і < шар 0.24 — друк і вигляд = рампа).
+    # втоплення 0.05 від стінок отворів: край сходинки, ДОТИЧНИЙ до
+    # вертикальної стінки соти/ізогріду, давав у STL зліплені трикутники
+    # (20 нон-маніфолд ребер @Z2.05/2.15) — відступ робить грані
+    # трансверсальними; 0.05 < сопло 0.4, невидимо
+    _hu_in = unary_union(holes).buffer(0.05, quad_segs=4)
+    skirt = []
+    for i in range(SKIRT_N):
+        ft = fp.buffer(-i * P.TRI_RIB_H / SKIRT_N, quad_segs=8) if i else fp
+        ft = ft.difference(_hu_in)
+        skirt.append([g for g in _polys(set_precision(ft, 0.01))
+                      if g.area > 3.0])
+    return holes, crown_polys, pockets, skirt
 
 
 def standoff_part():
@@ -479,7 +548,7 @@ def standoff_part():
 
 
 def build():
-    holes, crown_polys, tri_pockets = plan_geometry()
+    holes, crown_polys, tri_pockets, skirt = plan_geometry()
     standoff = standoff_part()                   # еталон — поза BuildPart
 
     with BuildPart() as tray:
@@ -512,23 +581,31 @@ def build():
                     RectangleRounded(wx1 - wx0, wy1 - wy0, radius=P.RAM_WIN_R)
             extrude(amount=1 + P.INFILL_T + 0.5, mode=Mode.SUBTRACT)
 
-        # ── корона зон постаментів: шар +1мм з трикутними кишенями ──
-        with BuildSketch(Plane.XY.offset(P.INFILL_T)):
-            for poly in crown_polys:
-                with BuildLine():
-                    Polyline(*list(poly.exterior.coords)[:-1], close=True)
-                make_face()
-                for ring in poly.interiors:
-                    rp = sg.Polygon(ring)
-                    if abs(rp.area) < 0.8:
-                        continue
-                    rp = rp.simplify(0.02).buffer(0)
-                    if rp.geom_type != 'Polygon' or rp.area < 0.8:
-                        continue
+        # ── корона зон постаментів: СПІДНИЦЯ 45° сходинками (28.07,
+        # «всі переходи 2→3 мм — під 45°») — рівень i = футпринт,
+        # звужений shapely-offset на i·h (h=0.1). Межі до мембрани
+        # стають 45°-рампами; наскрізні різи сот/кишень нижче
+        # відновлюють точні вертикальні стінки патерну. ──
+        _h = P.TRI_RIB_H / SKIRT_N
+        for i, level in enumerate(skirt):
+            with BuildSketch(Plane.XY.offset(P.INFILL_T + i * _h)):
+                for poly in level:
                     with BuildLine():
-                        Polyline(*list(rp.exterior.coords)[:-1], close=True)
-                    make_face(mode=Mode.SUBTRACT)
-        extrude(amount=P.TRI_RIB_H)
+                        Polyline(*list(poly.exterior.coords)[:-1],
+                                 close=True)
+                    make_face()
+                    for ring in poly.interiors:
+                        rp = sg.Polygon(ring)
+                        if abs(rp.area) < 0.8:
+                            continue
+                        rp = rp.simplify(0.02).buffer(0)
+                        if rp.geom_type != 'Polygon' or rp.area < 0.8:
+                            continue
+                        with BuildLine():
+                            Polyline(*list(rp.exterior.coords)[:-1],
+                                     close=True)
+                        make_face(mode=Mode.SUBTRACT)
+            extrude(amount=_h)
 
         # ── соти (кліпнуті) — наскрізь крізь заповнення І крону ──
         # (28.07: перенесено ПІСЛЯ крони, глибина повна — крона в плані
