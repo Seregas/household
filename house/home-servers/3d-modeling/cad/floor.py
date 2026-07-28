@@ -204,6 +204,17 @@ def plan_geometry():
     _belt = windows.buffer(P.RAM_WIN_RIM + _clr)
     holes_fin = [g for h in holes for g in _polys(h.difference(_belt))
                  if g.area > 10.0 and not g.buffer(-0.6).is_empty]
+    hu_fin = unary_union(holes_fin)
+    # 28.07 (фідбек п.3 «зрізав нижню грань ізогріду… артефакти в усіх
+    # закінченнях зліва та справа», 67.03/59.30): фестон-БОКС мав
+    # вертикальні кінці посеред крони — клин-слівер до 60°-плеча соти +
+    # язичок 0.4 крони НАД фестоном (риб 2.0 між стосованими сотами −
+    # фестон 1.6). Тепер фестон = ТРАПЕЦІЯ: боки йдуть 60° усередину-
+    # вгору ЧЕРЕЗ верхні кути флет-топа — колінеарні діагональним
+    # стінкам соти (межа крони = лінія патерну, клина нема); якщо
+    # просто над фестоном СТОСОВАНА сота — верх подовжується за її
+    # дно (ty+2.6 > риб 2.0, зайве зріже сама сота) і язичок зникає.
+    _slope60 = math.tan(math.radians(60.0))
     fest = []
     for h in holes_fin:
         ty = max(c[1] for c in h.exterior.coords)
@@ -212,7 +223,19 @@ def plan_geometry():
         xs = [c[0] for c in h.exterior.coords if c[1] > ty - 0.3]
         if max(xs) - min(xs) < 1.0:
             continue                # одноточковий верх — самонесучий
-        fest.append(sg.box(min(xs), ty - 0.1, max(xs), ty + _clr))
+        xl, xr = min(xs), max(xs)
+        mx = (xl + xr) / 2
+        probe = sg.box(mx - 0.6, ty + 0.1, mx + 0.6, ty + 2.6)
+        top_h = 2.6 if hu_fin.intersects(probe) else _clr
+        y0 = ty - 0.1
+        y1 = min(ty + top_h, ty + (xr - xl) / 2 * _slope60 - 0.05)
+        if y1 <= y0:
+            continue
+        fest.append(sg.Polygon([
+            (xl + (y0 - ty) / _slope60, y0),
+            (xr - (y0 - ty) / _slope60, y0),
+            (xr - (y1 - ty) / _slope60, y1),
+            (xl + (y1 - ty) / _slope60, y1)]).buffer(0))
     fest = unary_union(fest) if fest else sg.Polygon()
 
     # ── зони постаментів: морф. відкриття прибирає 2мм-павутину ──
@@ -235,6 +258,17 @@ def plan_geometry():
     # п.3; герметичної підлоги каналів давно нема)
     # відступ від RAM-вікон: модуль сідає в вікно, шар +1мм не має тертись
     zone = zone.difference(windows.buffer(0.5))
+    # 28.07 (фідбек п.2 «ти для чогось додав ізогрід знизу отвору під
+    # рам. навіщо?»): незапитаний ПОБІЧНИЙ ефект механіки Б — morph-
+    # відкриття захопило широку мембрану над ОПУЩЕНИМИ сотами і
+    # поставило смугу крони з кишенями в поясі під вікном A. Пояс
+    # RIM+CLR під вікнами — чиста 2мм мембрана (як і задумано
+    # фестонами): зона ріжеться явно, обидва вікна.
+    for k in P.RAM_KEEPOUT.values():
+        kx0, kx1 = k['x']; ky0 = k['y'][0]
+        zone = zone.difference(sg.box(
+            kx0 - 1.5, ky0 - P.RAM_WIN_RIM - P.FILL_RETREAT - 0.6,
+            kx1 + 1.5, ky0))
     # 08.07 (п.6): смужка МІЖ RAM-вікнами (модулі там прилягають один до
     # одного і звисають до Z2.55) — корону/ізогрід (3мм) тут НЕ робити,
     # лишається 2мм заливка; по всій глибині вікна A
@@ -346,43 +380,66 @@ def plan_geometry():
     pockets = [g for p in pockets for g in _polys(set_precision(p, 0.01))
                if g.area > 2.0]
     crown = set_precision(zone.difference(unary_union(pockets)), 0.01)
-    # 27.07: нога ребра ізогріду біля рами — ПО ПАТЕРНУ (WEDGE_LEG_PTS).
-    # Стара фаска 32° розходилась зі стінкою соти 60° → клин-слівер +
-    # кома + горбик (фідбек −33.18/−84.90 і 53.83/−84.90). Тепер:
-    # (а) UNION паралелограм уздовж стінки — нога стає ребром сталої
-    #     ширини до рами (поглинає слівер і кому);
-    # (б) ніша = два трикутники з гіпотенузою ПАРАЛЕЛЬНОЮ стінці
-    #     (один quad самоперетинався б — L2 перетинає вертикаль x_v);
-    # (в) зріз горбика морф-межі над лінією фестона.
+    # 27.07→28.07: нога ребра ізогріду біля рами — ПО ПАТЕРНУ
+    # (WEDGE_LEG_PTS). Історія: фаска 32° (клин-слівер+кома+горбик) →
+    # паралелограм 1.6 з вертикальними межами (5560922) знову лишав
+    # слівер і смужку (фідбек 54.90/−85.25 «має бути 3.00» +
+    # 55.43/−85.93 «має бути нічого»; точки на перп. 1.678 і 2.477 від
+    # стінки соти). Правильна межа = offset HEX_RIB 2.0 від стінки —
+    # стандартний риб патерну (1.678<2.0 ✓, 2.477>2.0 ✓). Нога =
+    # hex.buffer(2.0) ∩ clip-бокс; перекриття в соту зрізає наскрізний
+    # різ сот у build() → flush по стінці.
     if P.WEDGE_LEG_PTS:
-        _slope = math.tan(math.radians(60.0))   # стінка соти 60°
-        _w = P.WEDGE_LEG_W
-        _add, _cut = [], []
         for (wx, wy) in P.WEDGE_LEG_PTS:
             s = -1.0 if wx < 0 else 1.0         # дзеркало за знаком X
-            xw = lambda y: wx - s * (wy - y) / _slope   # кромка ноги
-            # (а) паралелограм [xw .. xw+w·s], y −84.0..−86.9 (у раму)
-            _add.append(sg.Polygon([
-                (xw(-84.0), -84.0), (xw(-86.9), -86.9),
-                (xw(-86.9) + _w * s, -86.9), (xw(-84.0) + _w * s, -84.0)]))
-            # (б) ніша: вертикаль x_v = кромка+w, гіпотенузи ∥ стінці
-            x_v = wx + _w * s
-            y_apex = wy + s * _slope * (x_v - _w * s - wx)   # ≈ wy
-            L2 = lambda y: xw(y) + _w * s
-            _cut.append(sg.Polygon([(x_v, y_apex), (x_v, -86.9),
-                                    (L2(-86.9), -86.9)]))
-            _cut.append(sg.Polygon([(x_v, y_apex), (x_v, -84.42),
-                                    (L2(-84.42), -84.42)]))
-            # (в) горбик морф-межі над лінією фестона y=−80.42 (заміряні
-            # бокси з контурів межі крони; за межею fest-бокса)
-            _cut.append(sg.box(-37.4, -80.42, -34.6, -79.8) if s < 0
-                        else sg.box(54.6, -80.42, 57.6, -79.8))
-        crown = set_precision(
-            crown.union(unary_union(_add)).difference(unary_union(_cut)),
-            0.01)
+            hexw = min(holes_fin,
+                       key=lambda h: h.distance(sg.Point(wx, wy)))
+            hb = hexw.buffer(P.HEX_RIB, quad_segs=16)
+            xin = wx - s * (wy + 86.9) / math.tan(math.radians(60.0))
+            # зовнішня межа кліпа = край hb на ВЕРХНІЙ кромці (y −79.8):
+            # вертикаль wx±4.2 відтинала ногу від морф-крони (клин-щілина,
+            # що звужувалась угорі до ~0.5) — тепер угорі щілина = 0
+            # (морф-крона прилягає до кута ноги), донизу ніша розкривається
+            # природним трикутником-кишенею по патерну.
+            tl = hb.intersection(sg.LineString([(-200, -79.8),
+                                                (200, -79.8)]))
+            xs = [c[0]
+                  for g in (tl.geoms if hasattr(tl, 'geoms') else [tl])
+                  for c in g.coords]
+            xout = max(xs) if s > 0 else min(xs)
+            clip = sg.box(min(xin, xout), -86.9, max(xin, xout), -79.8)
+            # верхівка клину-ніші сходилась РІВНО в точці дотику нога↔
+            # стрічка крони → point-touch у плані = pinch-ребро в STL
+            # (watertight=False). Opening R1: верхівка ніші заокруглюється
+            # і відступає (як у сусідніх кишень патерну), нога з'єднана
+            # зі стрічкою суцільною перемичкою.
+            v = clip.difference(hb)
+            vtop = v.buffer(-1.0, quad_segs=8).buffer(1.0, quad_segs=8)
+            # низ ніші (y ≤ −84) лишається різким — opening лише верхівці
+            niche = vtop.union(v.intersection(
+                sg.box(clip.bounds[0], -86.9, clip.bounds[2], -84.0)))
+            crown = crown.union(hb.intersection(clip)).difference(niche)
+        crown = set_precision(crown, 0.01)
     # 27.07 (варіант А): фестони ріжуть КРОНУ (не соти) — комірці ⌀17 і
     # снап-пади (base_keep) недоторкані
     crown = crown.difference(fest.difference(base_keep))
+    # 28.07 (фідбек п.4 «ізогрід накладений на верх стільників не
+    # точно», −49.91/92.61): zone.buffer(−0.08) (фікс коінцидентних
+    # стінок 08.07) давав видиму ПОЛИЧКУ 0.08 крони над стінкою соти.
+    # Фікс: крона ПЕРЕКРИВАЄ діру на 0.35 (замість дотику) — а точну
+    # грань стінки тримить НАСКРІЗНИЙ різ сот у build() (перенесений
+    # ПІСЛЯ крони, повна глибина): одна спільна грань, різ
+    # трансверсальний, коінцидентних площин нема. Inset −0.08 живе.
+    # 28.07 ч.2: intersection з ГОЛИМ hu_fin додавав лише шматок
+    # УСЕРЕДИНІ діри — канавка 0.08 (кромка зони ↔ стінка соти)
+    # лишалась непокритою (union роз'єднаних шматків її не зшиває,
+    # зонд −49.98..−49.89 @y92.61). Діри роздуто на 0.1 > 0.08 —
+    # band накриває канавку наскрізно до стінки й за неї; зайве
+    # всередині діри зрізає той самий наскрізний різ.
+    crown = set_precision(
+        crown.union(crown.buffer(0.35, quad_segs=8)
+                    .intersection(hu_fin.buffer(0.1, quad_segs=8))),
+        0.01)
     crown_polys = [g for g in _polys(crown) if g.area > 3.0]
     # 24.07 (фідбек «артефакт видалити −36.60/38.40/3.00»): морф-
     # відкриття лишає ІЗОЛЬОВАНУ кляксу зони між вирізами вікон A і B
@@ -443,19 +500,9 @@ def build():
                 RectangleRounded(x1 - x0, y1 - y0, radius=P.FRAME_CORNER_R)
         extrude(amount=P.FRAME_T - P.INFILL_T + 1, mode=Mode.SUBTRACT)
 
-        # ── соти (кліпнуті) — наскрізь крізь заповнення ──
-        with BuildSketch(Plane.XY.offset(-1)):
-            for g in holes:
-                with BuildLine():
-                    Polyline(*list(g.exterior.coords)[:-1], close=True)
-                make_face()
-                # внутрішні кільця (напр. пад кріплення ЦІЛКОМ усередині
-                # соти): без цього острів зникав — бонка висіла в повітрі
-                for ring in g.interiors:
-                    with BuildLine():
-                        Polyline(*list(ring.coords)[:-1], close=True)
-                    make_face(mode=Mode.SUBTRACT)
-        extrude(amount=1 + P.INFILL_T + 0.5, mode=Mode.SUBTRACT)
+        # (28.07, фікс п.4: різ сот ПЕРЕНЕСЕНО ПІСЛЯ крони — тепер він
+        # наскрізний крізь неї і тримить flush-грань стінки соти; крона
+        # в плані перекриває діри на 0.35, різ зрізає перекриття)
 
         # ── вирізи під RAM-модулі (наскрізні вікна; кути R1) ──
         for k in P.RAM_KEEPOUT.values():
@@ -482,6 +529,24 @@ def build():
                         Polyline(*list(rp.exterior.coords)[:-1], close=True)
                     make_face(mode=Mode.SUBTRACT)
         extrude(amount=P.TRI_RIB_H)
+
+        # ── соти (кліпнуті) — наскрізь крізь заповнення І крону ──
+        # (28.07: перенесено ПІСЛЯ крони, глибина повна — крона в плані
+        # перекриває діри на 0.35, цей різ зрізає перекриття → грань
+        # стінки соти ОДНА на всі шари Z1..3, коінцидентних площин нема)
+        with BuildSketch(Plane.XY.offset(-1)):
+            for g in holes:
+                with BuildLine():
+                    Polyline(*list(g.exterior.coords)[:-1], close=True)
+                make_face()
+                # внутрішні кільця (напр. пад кріплення ЦІЛКОМ усередині
+                # соти): без цього острів зникав — бонка висіла в повітрі
+                for ring in g.interiors:
+                    with BuildLine():
+                        Polyline(*list(ring.coords)[:-1], close=True)
+                    make_face(mode=Mode.SUBTRACT)
+        extrude(amount=1 + P.INFILL_T + P.TRI_RIB_H + 0.5,
+                mode=Mode.SUBTRACT)
 
         # ── ізогрід НАСКРІЗНИЙ (04.07): ті ж трикутні кишені прорізаються
         # крізь 2мм заповнення → решітка 3мм на просвіт (жорсткість ×2.5
