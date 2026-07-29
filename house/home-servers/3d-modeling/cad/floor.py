@@ -352,12 +352,18 @@ def plan_geometry():
     # ЗА межу interior (смуга ззовні) перед ерозією, потім кліпаємо
     # назад: обідок 2мм лишається лише вздовж вікон/коридорів/меж зони.
     # 29.07 (дефект 4, −72.62/−21.91): той самий обідок 2.0 виникав і
-    # вздовж стінок СОТ (зонд: кишеня за 2.08 від стінки — дуга ерозії)
-    # → розширюємо зону і В СОТИ: сота «продовжує» зону, як рама;
-    # кишеня йде до стінки за патерном (ребро 1.5, зайве в отворі
-    # зрізає наскрізний різ сот у build()).
+    # вздовж стінок СОТ (зонд: кишеня за 2.08 від стінки — дуга ерозії).
+    # 29.07 ч.2: смужка buffer(2.2)∩hu_fin НЕ вилікувала (3D-зонд: дуга
+    # лишилась — ерозія −2.0 від краю вузької смужки відтворює дугу біля
+    # стінки) → у зону вливаються суміжні соти ЦІЛКОМ (buffer 0.25
+    # перекриває втоплення зони −0.08): ерозія в соті відступає від її
+    # ДАЛЬНІХ стінок, біля ближньої кишеня йде до стінки за патерном
+    # (ребро 1.5; зайве в отворі зрізає наскрізний різ сот у build()).
+    _zh = unary_union([h.buffer(0.25, quad_segs=8) for h in holes_fin
+                       if h.buffer(0.25, quad_segs=8).intersects(zone)]) \
+        if holes_fin else sg.Polygon()
     zone_ext = zone.union(zone.buffer(2.2).difference(interior)) \
-                   .union(zone.buffer(2.2).intersection(hu_fin))
+                   .union(_zh)
     # 29.07 (дефект 2, закон зв'язків): кліп 25.07 holes.buffer(0.5)
     # ВИДАЛЕНО — він лікував «висячий пластик» ребер над отворами, що
     # відтоді вилікуваний наскрізним різом сот 28.07 (flush-стінки);
@@ -394,7 +400,13 @@ def plan_geometry():
     # крона ділять межу (кліп по pocket_region), але крона снапилась
     # set_precision 0.01, а tri_pockets ішли в наскрізний різ НЕснапнуті
     # (79.410 vs 79.413) → сливер-стінка. Снапимо кишені ДО обох вживань.
-    pockets = [g for p in pockets for g in _polys(set_precision(p, 0.01))
+    # 29.07 ч.3 (зонд probe3d: хвіст-волосина 0.06 на кишені біля
+    # WEDGE): opening 0.12 знімає вуса-хвости кишень; кути R1 патерну
+    # не чіпає (R0.12 « сопло 0.4). Снап 0.01 — ПІСЛЯ (flush-межі).
+    pockets = [g for p in pockets
+               for q in _polys(p.buffer(-0.12, quad_segs=8)
+                               .buffer(0.12, quad_segs=8))
+               for g in _polys(set_precision(q, 0.01))
                if g.area > 2.0]
     # 28.07 (острів FACE_DOWN z162.84 @S4): нижня ДОТИЧНА комірця ⌀17
     # (cx, cy−keep_r) опинилась ПОСЕРЕД кишені (крок ґратки 19.5 після
@@ -414,6 +426,7 @@ def plan_geometry():
     # стандартний риб патерну (1.678<2.0 ✓, 2.477>2.0 ✓). Нога =
     # hex.buffer(2.0) ∩ clip-бокс; перекриття в соту зрізає наскрізний
     # різ сот у build() → flush по стінці.
+    _wniches = []
     if P.WEDGE_LEG_PTS:
         for (wx, wy) in P.WEDGE_LEG_PTS:
             s = -1.0 if wx < 0 else 1.0         # дзеркало за знаком X
@@ -441,9 +454,46 @@ def plan_geometry():
             v = clip.difference(hb)
             vtop = v.buffer(-1.0, quad_segs=8).buffer(1.0, quad_segs=8)
             # низ ніші (y ≤ −84) лишається різким — opening лише верхівці
-            niche = vtop.union(v.intersection(
-                sg.box(clip.bounds[0], -86.9, clip.bounds[2], -84.0)))
-            crown = crown.union(hb.intersection(clip)).difference(niche)
+            niche = set_precision(vtop.union(v.intersection(
+                sg.box(clip.bounds[0], -86.9, clip.bounds[2], -84.0))),
+                0.01)
+            # 29.07 ч.4 (скріншот: ШИП — товстий залишок v між дугою
+            # vtop і ребром hb, обрив x=-34.78 y-81.8..-83.0; тест
+            # _absorb «тонше 0.5» його не брав): ВСЕ v нижче апекса
+            # (y ≤ -81.4) вливається в нішу — край іде чисто по hb;
+            # перемичка над апексом (анти-pinch) лишається.
+            niche = set_precision(niche.union(v.intersection(
+                sg.box(clip.bounds[0], -86.9, clip.bounds[2], -81.4))),
+                0.01)
+            # 29.07 ч.3 (зонд probe3d: шипи ~0.05 у ніші): тонкі
+            # серпики v−vtop уздовж дуги hb (залишки opening R1)
+            # вливаються в НІШУ (різ до hb = чиста грань по патерну);
+            # верхівковий клин НЕ чіпаємо (перемичка над нішею).
+            _absorb = unary_union(
+                [g for g in _polys(set_precision(v, 0.01)
+                                   .difference(niche))
+                 if g.buffer(-0.25, quad_segs=8).is_empty
+                 and g.distance(hb) < 0.05])
+            if not _absorb.is_empty:
+                niche = set_precision(niche.union(_absorb), 0.01)
+            # 29.07 ч.3: вуса самої ніші (сливер clip-межа↔дуга hb
+            # 0.06 = волосяний наскрізний проріз) — opening 0.12;
+            # зрізані вуса НЕ повертаються в крону (лише товсті клапті)
+            # — тонкий залишок зливається з ребром hb у тілі (невидимо).
+            niche = set_precision(
+                niche.buffer(-0.12, quad_segs=8)
+                     .buffer(0.12, quad_segs=8), 0.01)
+            # 29.07 ч.2 (скріншот 2): ніша = НАСКРІЗНА кишеня ізогріду
+            # («велика синя площина — має бути отвір ґратки»), а клапті
+            # clip поза нішею — повна крона 3мм («мала площина — ґратка
+            # 3мм, не 2»). Ніша йде і в pockets (наскрізний різ + fp).
+            _vres = unary_union(
+                [g for g in _polys(set_precision(v, 0.01)
+                                   .difference(niche))
+                 if not g.buffer(-0.25, quad_segs=8).is_empty])
+            crown = crown.union(hb.intersection(clip)) \
+                         .union(_vres).difference(niche)
+            _wniches += [g for g in _polys(niche) if g.area > 2.0]
         crown = set_precision(crown, 0.01)
     # 27.07 (варіант А): фестони ріжуть КРОНУ (не соти) — комірці ⌀17 і
     # снап-пади (base_keep) недоторкані
@@ -465,18 +515,32 @@ def plan_geometry():
         crown.union(crown.buffer(0.35, quad_segs=8)
                     .intersection(hu_fin.buffer(0.1, quad_segs=8))),
         0.01)
-    # 29.07 (дефект 1, «всі точки з'єднання ізогрід↔сота дефектні»):
-    # у смузі стику J (1.6 уздовж стінок сот) — opening −0.65/+0.70:
-    # «вусики» морф-межі R1.2 і 0.1-слівери band'а (все тонше 1.3)
-    # зникають, кінці ребер отримують простий круглий торець R0.7
-    # («просто закругли», без напливів по боках), а +0.05 перекриття
-    # у стінку гарантує flush без щілини (зайве в отворі зрізає
-    # наскрізний різ сот у build()). Поза J крона недоторкана; шов на
-    # межі J ≤0.05 < сопло 0.4.
-    _J = hu_fin.buffer(1.6, quad_segs=8)
-    _opened = crown.buffer(-0.65, quad_segs=8).buffer(0.70, quad_segs=8)
+    # 29.07 ч.3 (зонди probe3d: пари вусик+щілина ~0.05 на контурі —
+    # стик band↔рампа бортика ззаду, торці ребер біля стінок сот):
+    # closing 0.12 зашиває волосяні щілини, opening 0.12 знімає
+    # вусики; R0.12 « сопло 0.4 — на формі невидимо, band 0.35 живе.
     crown = set_precision(
-        crown.difference(_J).union(_opened.intersection(_J)), 0.01)
+        crown.buffer(0.12, quad_segs=8).buffer(-0.24, quad_segs=8)
+             .buffer(0.12, quad_segs=8), 0.01)
+    # 29.07 ч.4 (скріншот: рвана задня межа крони перед трампліном —
+    # зазубрини на стиках ребер сот, пальці 97.2..98.4): «РОЗГІН» —
+    # трансляції смуги крони 96.9..98.4 по +Y добігають суходільні
+    # пальці флаш до підошви трампліна (98.4); отвори сот і кишені
+    # ізогріду НЕ перекриваються (кромки над отворами добирає
+    # наскрізний різ сот у build()).
+    _rband = sg.box(P.WALL_L_X + P.BEAD_W - 0.5, 96.9,
+                    P.WALL_R_IN + 0.4, 98.4)
+    _rsrc = crown.intersection(_rband)
+    _rext = unary_union([translate(_rsrc, yoff=d)
+                         for d in (0.25, 0.5, 0.75, 1.0, 1.25, 1.5)])
+    _rext = _rext.intersection(_rband).difference(hu_fin) \
+                 .difference(unary_union(pockets))
+    crown = set_precision(crown.union(_rext), 0.01)
+    # 29.07 ч.2 (фідбек «можеш просто повернути закруглення як було
+    # раніше?»): opening −0.65/+0.70 у смузі J ВІДКОЧЕНО — у 3D давав
+    # «брудне закруглення» (обгризені торці ребер). Смуга J лишається
+    # ЛИШЕ як зона-виключення спідниці (_skeep нижче).
+    _J = hu_fin.buffer(1.6, quad_segs=8)
     crown_polys = [g for g in _polys(crown) if g.area > 3.0]
     # 24.07 (фідбек «артефакт видалити −36.60/38.40/3.00») → 28.07
     # («какаха» −37.78/38.26): поріг area≥15 пропускав ізольовані
@@ -511,6 +575,12 @@ def plan_geometry():
     _cu_fill = unary_union([sg.Polygon(g.exterior) for g in crown_polys])
     pockets = [p for p in pockets
                if p.intersection(_cu_fill).area > ORPHAN_MIN * p.area]
+    # 29.07 ч.4: ніші WEDGE — «затоки» в контурі крони (exterior їх
+    # не заливає, частка 0.003) → orphan-фільтр їх помилково їв, різ
+    # не робився і в ніші лишалась мембрана 2мм (а мала бути
+    # НАСКРІЗНА кишеня — фідбек скріншота 2). Додаються ПІСЛЯ
+    # фільтра свідомо: крона навколо жива (стрічка + hb + перемичка).
+    pockets += _wniches
     # 28.07 («всі переходи 2→3 мм по зет — під 45°»): футпринт СПІДНИЦІ
     # крони. Кишені ЗАЛИТІ (нахил їхніх інтеріорів роздув би вікна
     # вгорі — ребра 1.5 стали б лезами); розширення 1.2 (> нахил 1.0)
@@ -521,6 +591,16 @@ def plan_geometry():
     fp = unary_union(crown_polys + pockets)
     fp = fp.union(fp.buffer(1.2, quad_segs=8).difference(interior))
     fp = fp.union(fp.buffer(1.2, quad_segs=8).intersection(hu_fin))
+    # 29.07 ч.2 (скріншот 5, п.6): «перехід від стільників до ізогріду
+    # має починатись з самого краю стільників» — фестонні смуги
+    # вливаються у ФУТПРИНТ спідниці: рівень 0 стартує на кромці
+    # флет-топа соти, вищі рівні відступають translate-механікою →
+    # 45°-рампа ВІД краю соти до повної крони. Кишені ізогріду в
+    # pocket_region фестони як виключали, так і виключають (маса над
+    # стелею-мостом не перфорується) — це ЛИШЕ спідниця.
+    if not fest.is_empty:
+        fp = fp.union(unary_union(
+            [f for f in _polys(fest) if f.intersects(fp)]))
     # компоненти-СИРОТИ (кишені крон, видалених якірним фільтром) геть —
     # інакше висіли б крихтами Z2..3 у повітрі (їх все одно зрізав би
     # наскрізний різ, але OCC на них дає invalid-тіла)
@@ -563,7 +643,9 @@ def plan_geometry():
         _skeep += [sg.box(wx - 6.0, -87.4, wx + 6.0, -79.3)
                    for (wx, wy) in P.WEDGE_LEG_PTS]
     _skeep.append(ramp_strip.buffer(1.6, quad_segs=8))
-    _skirt_keep = fp.intersection(unary_union(_skeep))
+    # 29.07 ч.2 (п.6): фестонні смуги ВИЛУЧАЮТЬСЯ з keep-зон — рампа
+    # від краю соти має жити і там, де фестон перетинає смугу J
+    _skirt_keep = fp.intersection(unary_union(_skeep).difference(fest))
     skirt = []
     for i in range(SKIRT_N):
         d = i * P.TRI_RIB_H / SKIRT_N
