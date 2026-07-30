@@ -272,6 +272,44 @@ ssh pve   # MacBook key (~/.ssh/pve_admin) — налаштувати на но�
 
 ---
 
+## Сесія 2026-07-30 — NAS у стійці, мережа працює, SMART, boot-pool DEGRADED
+
+**Мережа — ПРАЦЮЄ як спроектовано:**
+- NAS у стійці, DAC → `10GbSwitch sfp-sfpplus2` (access VLAN 30). Reservation спрацював: lease `status=bound`, `active-address=10.10.30.20`, MAC `A8:B8:E0:06:27:B3` (port1) — тобто влучив у правильний порт.
+- Веб-морда доступна: `https://10.10.30.20` (443 відкритий, ping ~40-80 ms — Wi-Fi latency з MacBook).
+
+**SSH-доступ Claude → NAS (налаштовано):**
+- Створено окремий ключ `~/.ssh/truenas_nas` (ed25519, comment `macbook->truenas-nas`), публічний вставлено в TrueNAS user `truenas_admin`.
+- Alias у `~/.ssh/config`: **`ssh nas`** → 10.10.30.20, user truenas_admin, IdentitiesOnly.
+- SSH на NAS приймає ТІЛЬКИ ключі (парольний вхід вимкнено — лишити так). Увімкнено passwordless sudo для truenas_admin (потрібно для smartctl/zpool/midclt).
+
+**Конфіг, виправлений цією сесією (через midclt):**
+- Timezone: `America/Los_Angeles` → **`Europe/Kyiv`** (було критично: логи/алерти/розклади йшли в PDT).
+- Hostname/domain: `truenas`/`local` → **`nas`/`home.arpa`** (відповідає nas.home.arpa).
+
+**Диски — стан на 30.07.2026:**
+- HBA бачить ТРИ диски: `sda` Samsung SM863 (boot, ONLINE), `sdb` Toshiba X4U0A07MFTUJ, `sdc` Toshiba 8572A048FTUJ.
+- ⚠️ **boot-pool DEGRADED**: Intel S3500 (CVWL422401RN120LGN) ФІЗИЧНО ВІДСУТНІЙ — немає навіть у `lsscsi`, тобто не бачить контролер. У zpool: `12923152998268006447 UNAVAIL (was /dev/sdb3)`. Відпав під час підключення 8TB → ймовірно зсунувся SAS-роз'єм або SATA-power на SAS1/лоток HDD9.
+- Літери зсунулись (Toshiba зайняв sdb) — для ZFS не проблема, ідентифікація по GUID.
+
+**SMART на обох Toshiba — ВІДМІННИЙ (перед пулом):**
+- Обидва `PASSED`. Reallocated_Sector_Ct=0, Current_Pending_Sector=0, Offline_Uncorrectable=0, Raw_Read_Error=0, Seek_Error=0.
+- Power_On_Hours: **319 / 320** (диски майже нові). Temp 38-39°C, у логах max 49-50°C — врахувати продув 3.5″ у стійці.
+- Запущено довгі self-тести (`smartctl -t long`) ~11 год: завершення ~03:37 і ~04:00 (Kyiv). ⚠️ **Вимкнення NAS переб'є тести** — доведеться перезапустити (шкоди немає).
+
+**`tank8TB-mirror` — ГОТОВИЙ ДО ІМПОРТУ:**
+- `zpool import` показує: id `14880834294163539051`, state **ONLINE**, mirror-0 ONLINE, обидва члени ONLINE, помилок нема.
+- «The pool was last accessed by another system» — очікувано (стара TrueNAS-VM) → імпорт потребує **`-f`**.
+
+**НАСТУПНІ КРОКИ:**
+- [ ] Фізично (вдома): вимкнути → перевірити SAS-роз'єм + SATA-power **Intel S3500 (SAS1/HDD9)** → розкласти живлення за схемою (кабель1: Samsung+Toshiba#1; кабель2: Intel+Toshiba#2).
+- [ ] Увімкнути → звірити, що HBA бачить 4 диски → `zpool replace boot-pool 12923152998268006447 <intel-partition>` → resilver (швидкий).
+- [ ] Перезапустити довгі SMART (якщо переб'ються) АБО пустити у фоні.
+- [ ] **ІМПОРТ**: `zpool import -f tank8TB-mirror` (або Storage → Import Pool). НЕ створювати!
+- [ ] Далі: NFS/PBS-прив'язки до Proxmox, SMB/TimeMachine/Jellyfin (UID 568, ACL).
+
+---
+
 # АРХІВ: попередня система (TOPC PHX) — виведена з роботи 24.06.2026
 
 > ⚠️ **Усе нижче описує СТАРУ систему** (TOPC PHX mini-PC, Ryzen 7 7840HS), яка **мігрована** на
@@ -589,3 +627,52 @@ ssh pve 'pct exec 130 -- proxmox-backup-manager datastore list'
 # Ручний бекап однієї VM на PBS (з ХОСТА):
 ssh pve 'vzdump 110 --storage pbs --mode snapshot'
 ```
+
+---
+
+## СТАН NAS на 30.07.2026 (сесія: мережа піднята, SMART у процесі)
+
+**Мережа — ПРАЦЮЄ.** NAS у стійці, DAC у `10GbSwitch sfp-sfpplus2` ↔ NAS SFP+ port1.
+DHCP-reservation відпрацював: `10.10.30.20` (status=bound, MAC A8:B8:E0:06:27:B3).
+Веб-морда `https://10.10.30.20` доступна; ping з MacBook ОК.
+
+**SSH-доступ для Claude налаштовано:**
+- Окремий ключ `~/.ssh/truenas_nas` (+ `truenas_nas.pub`), alias `nas` у `~/.ssh/config`
+  (HostName 10.10.30.20, User **truenas_admin**, IdentitiesOnly yes).
+- У TrueNAS: SSH-сервіс увімкнено, ключ доданий користувачу, passwordless sudo дозволено.
+- Перевірено: `ssh nas` працює, `sudo -n` працює. TrueNAS 25.10.4, kernel 6.12.91-production.
+
+**⚠️ boot-pool DEGRADED — потрібна ФІЗИЧНА робота (Intel S3500 зник).**
+- `zpool status boot-pool`: mirror-0 DEGRADED; `12923152998268006447` **UNAVAIL** (was /dev/sdb3); `sda3` ONLINE.
+- Intel S3500 (CVWL422401RN120LGN) НЕ бачить навіть HBA: `lsscsi` показує лише 3 диски
+  (0:0:0:0 Toshiba /dev/sdb, 0:0:1:0 Samsung /dev/sda, 0:0:2:0 Toshiba /dev/sdc).
+  → Отже це кабель/живлення, а не софт. Диск на **SAS1 / лоток HDD9**; відпав, коли підключали 8TB.
+- Літери зсунулись: тепер sdb/sdc = Toshiba, sda = Samsung. Для ZFS не проблема (ідентифікація за GUID).
+
+**SMART 8TB — тести ЙДУТЬ (запущені ~17:40, 30.07.2026).**
+Обидва Toshiba MG10ADA800E, health **PASSED**, наробіток лише **320 год**:
+| Диск | Серійник | Realloc | Pending | Offline_Unc | CRC | Темп. |
+|------|----------|---------|---------|-------------|-----|-------|
+| sdb | X4U0A07MFTUJ | 0 | 0 | 0 | 0 | 42→43 °C (min/max 16/50) |
+| sdc | 8572A048FTUJ | 0 | 0 | 0 | 0 | 41→42 °C (min/max 19/49) |
+- Довгий self-test: тривалість ~656 хв (sdb) / ~679 хв (sdc) ≈ 11 год.
+  Стан на момент запису: `90% remaining` → **завершення орієнтовно 4–5 ранку 31.07**.
+- Перевірити результат: `ssh nas "sudo smartctl -l selftest /dev/sdb; sudo smartctl -l selftest /dev/sdc"`.
+- ⚠️ Температура: 41–43 °C **у простої** в тісному корпусі; довгий тест дає лише +1 °C.
+  Формально ок (стеля MG10 ~55–60 °C), але комфортна зона HDD — до 40–45 °C. Розглянути додатковий продув на диски.
+
+**tank8TB-mirror — НЕ ІМПОРТОВАНИЙ (стан Exported).** Обидва диски видні, серійники звірені ✅.
+⚠️ Робити саме **Storage → Import Pool**, НЕ створювати.
+
+### ЧЕРГА ДІЙ (у цьому порядку)
+1. [ ] **Фізично:** вимкнути NAS → перевірити SAS-роз'єм + SATA-power **Intel S3500 (SAS1/HDD9)**;
+   розкласти живлення за схемою (кабель1: Samsung+Toshiba#1 / кабель2: Intel+Toshiba#2).
+2. [ ] Увімкнути → перевірити, що HBA бачить **4** диски (`lsscsi`).
+3. [ ] Відновити boot-дзеркало: `zpool replace boot-pool 12923152998268006447 <intel-part>` → resilver (швидко).
+4. [ ] Прочитати результати SMART-тестів (мають бути `Completed without error`).
+5. [ ] **ІМПОРТ `tank8TB-mirror`** зі звіркою серійників.
+6. [ ] Алерти: System Settings → **Alert Services** (Telegram) + Alert Settings.
+   Примітка: у 25.10 SMART-моніторинг у middleware (опитування кожні 90 хв), температурні пороги
+   **автоматичні** за max operating temp диска (тобто спрацюють близько 55–60 °C — пізно для комфорту).
+   Для ранніх порогів (~45 °C): app **Scrutiny** або скрипт → Home Assistant (10.10.30.11).
+7. [ ] Далі: NFS/PBS-прив'язки до Proxmox, SMB / Time Machine / Jellyfin (UID 568, ACL).
