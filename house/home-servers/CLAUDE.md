@@ -706,3 +706,35 @@ ACL media вціліла: `group:apps:r-x` (Jellyfin UID 568) + `builtin_users:r
 3. [ ] Після Intel: **бекап конфігу** (System → General → Save Config) на Mac — поки дзеркало одноноге, конфіг без страховки.
 4. [ ] NFS (`pve-storage`, `pbs-store`) — відкладено, Proxmox-нода ще не підключена.
 5. [ ] Alert Service (Telegram) + рішення щодо періодичних снапшотів.
+
+### 30.07.2026 (ч.3) — Time Machine: пастка зі stale share-ACL (ВИРІШЕНО)
+
+**Симптом:** `media` монтується нормально, а `timemachine` — ні. Finder: «There was a problem
+connecting to the server 10.10.30.20. The share does not exist on the server.»
+Time Machine: «backup disk unavailable». У `log.smbd` — лише DFS-шум
+(`parse_dfs_path_strict: can't parse hostname from path`), справжньої причини не видно.
+
+**Корінь проблеми — share-level ACL зі СТАРОЇ системи:**
+- `sharesec media --view` → `S-1-1-0` (Everyone) ✅
+- `sharesec timemachine --view` → `S-1-5-21-131487782-91497291-1678952926-20071` ❌
+- Новий server SID: `S-1-5-21-3855877493-947158131-1773798930`; RID 20071 той самий, але **домен старий**
+  → `wbinfo --sid-to-name` = `WBC_ERR_DOMAIN_NOT_FOUND`, тобто ACL пускав мертвий SID.
+- **Чому:** системний датасет після імпорту пулу — `tank8TB-mirror/.system`, і разом із ним
+  підхопився Samba-стан старої системи (`share_info.tdb`) з її share-ACL. Новий шар з тим самим
+  ім'ям `timemachine` успадкував чужий ACL.
+- **Фікс:** `sharing.smb.setacl {"share_name":"timemachine","share_acl":[{"ae_who_sid":"S-1-1-0","ae_perm":"FULL","ae_type":"ALLOWED"}]}`
+  (доступ і далі контролює файлова NFSv4-ACL: `user:timemachine:rwx` + `builtin_users:rwx`).
+- ⚠️ **ПРАВИЛО:** створюючи шар з ім'ям, що вже існувало на старій системі, ОДРАЗУ перевіряти
+  `sudo sharesec <share> --view` — інакше ловиш «share does not exist» на рівному місці.
+
+**Інші деталі TM:**
+- `aapl_extensions=true` обов'язковий, інакше `sharing.smb.create` з purpose TIMEMACHINE_SHARE
+  падає з EINVAL («Apple SMB2/3 protocol extension support is required»).
+- `sharing.smb.update` вимагає передавати `purpose` разом з `options` (EINVAL: "You must set `purpose`").
+- Квота TM: `options.timemachine_quota` у **байтах** → `fruit:time machine max size` у smb4.conf.
+  Відновлено 1.5 TB (як було: `tmutil destinationinfo` показував Quota 1,5 TB).
+- ⚠️ У 25.10 **`fruit:volume_uuid` НЕ генерується** (поле `vuid` у БД є, у smb4.conf немає).
+  Тому старий Destination ID (`67EB4B58-0B5B-44E4-9E84-AAB679E096AC`) відтворити неможливо
+  → на Mac треба видалити старий запис TM і додати диск заново (наявний `SerhiiS.sparsebundle`
+  успадковується, історія 01.06–09.06 не втрачається).
+- **РЕЗУЛЬТАТ: шар підключається, бекап стартує.** ✅
