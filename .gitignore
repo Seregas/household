@@ -9,3 +9,6 @@ Thumbs.db
 # Home Assistant backups — sensitive (secrets/tokens) + large, keep out of git
 *.tar
 
+
+# Claude Code — локальні налаштування машини (дозволи, шляхи)
+.claude/settings.local.json
