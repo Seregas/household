@@ -733,8 +733,10 @@ Time Machine: «backup disk unavailable». У `log.smbd` — лише DFS-шум
 - `sharing.smb.update` вимагає передавати `purpose` разом з `options` (EINVAL: "You must set `purpose`").
 - Квота TM: `options.timemachine_quota` у **байтах** → `fruit:time machine max size` у smb4.conf.
   Відновлено 1.5 TB (як було: `tmutil destinationinfo` показував Quota 1,5 TB).
-- ⚠️ У 25.10 **`fruit:volume_uuid` НЕ генерується** (поле `vuid` у БД є, у smb4.conf немає).
-  Тому старий Destination ID (`67EB4B58-0B5B-44E4-9E84-AAB679E096AC`) відтворити неможливо
-  → на Mac треба видалити старий запис TM і додати диск заново (наявний `SerhiiS.sparsebundle`
-  успадковується, історія 01.06–09.06 не втрачається).
-- **РЕЗУЛЬТАТ: шар підключається, бекап стартує.** ✅
+- Спостереження (НЕ причина збою): у 25.10 `fruit:volume_uuid` не генерується в smb4.conf,
+  хоч поле `vuid` у БД є. Destination ID на Mac був `67EB4B58-0B5B-44E4-9E84-AAB679E096AC`
+  (`tmutil destinationinfo`). Спершу здалося, що через це доведеться перестворювати запис TM —
+  **це виявилось хибною гіпотезою**.
+- **РЕЗУЛЬТАТ:** після фіксу share-ACL усе заробило БЕЗ жодних змін на Mac — старий запис
+  бекап-диска підхопився сам, історія бекапів збереглася, бекап стартував. ✅
+  Тобто **єдина причина** була stale share-ACL (мертвий SID), а не volume_uuid / Destination ID.
