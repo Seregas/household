@@ -676,3 +676,33 @@ DHCP-reservation відпрацював: `10.10.30.20` (status=bound, MAC A8:B8:
    **автоматичні** за max operating temp диска (тобто спрацюють близько 55–60 °C — пізно для комфорту).
    Для ранніх порогів (~45 °C): app **Scrutiny** або скрипт → Home Assistant (10.10.30.11).
 7. [ ] Далі: NFS/PBS-прив'язки до Proxmox, SMB / Time Machine / Jellyfin (UID 568, ACL).
+
+### 30.07.2026 (ч.2) — ПУЛ ІМПОРТОВАНО, застосунки й SMB відновлено
+
+**`tank8TB-mirror` ІМПОРТОВАНО** через middleware (`pool.import_pool`, guid `14880834294163539051`).
+Стан: **ONLINE**, `errors: No known data errors`, обидва члени дзеркала ONLINE. 2.49T/7.27T (34%).
+Був потрібен force («last accessed by another system») — очікувано після переїзду зі старої VM.
+Дані на місці: `projects/genomics` 1.64T · `timemachine` 408G · `pve-storage` 300G · `media` 140G · `pbs-store` 18.2G.
+Властивості датасетів збереглися: media quota/refquota **2T**, recordsize **1M**; timemachine **3T**, 128K; обидва acltype **nfsv4**.
+ACL media вціліла: `group:apps:r-x` (Jellyfin UID 568) + `builtin_users:rwx`.
+
+**Застосунки підняті** (`docker.update pool=tank8TB-mirror` → dataset `tank8TB-mirror/ix-apps`):
+- **Jellyfin** 1.3.11 RUNNING — `http://10.10.30.20:30013` (HTTP 302 = ок).
+- **Tailscale** 1.4.9 RUNNING — вже автентифікований, нода **`nasik`** `100.75.215.23` у тайнеті mining-owl.
+
+**SMB відновлено:** `aapl_extensions=true` (обов'язково для Time Machine, інакше EINVAL на purpose),
+шари **`media`** (DEFAULT_SHARE) і **`timemachine`** (TIMEMACHINE_SHARE), сервіс cifs RUNNING + enable=True.
+Імена шар маленькими — щоб збережені на Mac `smb://10.10.30.20/media` і `/timemachine` працювали без правок.
+
+**Scrub:** задача створилась автоматично при імпорті; час виправлено 00:00 → **02:00 щонеділі** (dow=7), threshold 35.
+**Періодичних снапшотів немає** (і на старій системі не було — усі 7 наявних це `@pristine` boot-pool).
+
+**SMART:** довгі тести 8TB **обірвано** (`smartctl -X`) — сенсу мало, бо дані на цих дисках уже жили,
+а атрибути ідеальні (0 realloc/pending/CRC, 320 год). Прогнати після підключення Intel.
+
+### ЛИШИЛОСЬ
+1. [ ] **Фізично:** Intel S3500 (SAS1/HDD9) — кабель/живлення → `zpool replace` → resilver boot-pool.
+2. [ ] **Сергій:** створити SMB-користувача **`timemachine`** (Credentials → Users → Add, ✅SMB Access, shell nologin, пароль свій).
+3. [ ] Після Intel: **бекап конфігу** (System → General → Save Config) на Mac — поки дзеркало одноноге, конфіг без страховки.
+4. [ ] NFS (`pve-storage`, `pbs-store`) — відкладено, Proxmox-нода ще не підключена.
+5. [ ] Alert Service (Telegram) + рішення щодо періодичних снапшотів.
