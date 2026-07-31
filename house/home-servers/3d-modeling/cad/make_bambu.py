@@ -6,8 +6,12 @@ Bambu обмеження: один процес (висота шару) на п�
   • out/print_all.3mf   — ОДИН файл, 3 пластини (пооб'єктний шар)
   • out/print_tray.3mf  — корпус ЛИЦЕМ ВНИЗ, 0.24, без підтримок
   • out/print_block.3mf — SSD-блок дном вниз, 0.2, gyroid 13%
-  • out/print_test.3mf  — ТЕСТ №4 snap-fit (20.07): test_tray стоячи +
-    test_block + 2 зачепи, бойові орієнтації/шари
+  • out/print_test.3mf  — КУПОНИ undercut-замків (31.07), 2 пластини:
+    (1) дна СТОЯЧИ (FACE_DOWN — ледж у площині шару, як у корпусі):
+        пелюстковий нест + конусний нест;
+    (2) блоки дном вниз + зачепи: 2 пелюсткові на боці (ROT_Y90) і
+        2 конусні в2 кінчиком униз (IDENT, brim 5).
+    Старий snap-fit тест (test_tray/block) знято.
   • out/print_clips.3mf — ЛИШЕ 2 зачепи (в6.3, передрук інтерфейсної
     деталі: слот дна і Т-паз блока — старі), 0.16 + brim 3
   • out/print_small.3mf — вставка I/O лицем вниз + КОВПАК LSI задньою
@@ -225,27 +229,48 @@ PROJECTS = {
               "sparse_infill_pattern": "gyroid",
               "brim_type": "no_brim"},
     ),
-    # 20.07: ТЕСТ №4 snap-fit (test_latch.py) — шматки в БОЙОВИХ
-    # орієнтаціях і з бойовими параметрами шару (інакше тест бреше про
-    # зазори): test_tray СТОЯЧИ на передньому торці = FACE_DOWN (та сама
-    # орієнтація слотів/кишень, що в корпусі лицем вниз, 0.24 + brim 5);
-    # test_block дном вниз 0.2 gyroid; зачепи на боці 0.16 + brim 3
+    # 31.07: КУПОН пелюсткового/undercut замка блока (test_petal.py) —
+    # шматки в БОЙОВИХ орієнтаціях (інакше тест бреше про ледж/зазори):
+    # test_petal_floor СТОЯЧИ = FACE_DOWN (нест-ледж у площині шару, як у
+    # корпусі лицем вниз; 0.24 + brim 5 — тонка висока стінка); блок дном
+    # вниз 0.2 gyroid; 2 зачепи на боці 0.16 + brim 3 (пружина в площині
+    # шарів, 1 робочий + 1 запас). Старий snap-fit (test_tray/block) знято.
     "print_test": dict(
         plates=[
-            dict(name="Тест дна (стоячи, як корпус)", objects=[
-                ("test_tray.stl", "Test_tray", FACE_DOWN, (0.0, 0.0),
+            dict(name="Дно: нести пелюстковий + конусний (FACE_DOWN)",
+                 objects=[
+                ("test_petal_floor.stl", "Petal_floor", FACE_DOWN, (-45.0, 0.0),
+                 {"brim_type": "auto_brim", "brim_width": "5"}),
+                # 31.07: конус-нест (бос горизонтально = як постаменти;
+                # ледж у площині шару — inline-стінка, друк без підтримок)
+                ("test_cone_floor.stl", "Cone_floor", FACE_DOWN, (45.0, 0.0),
                  {"brim_type": "auto_brim", "brim_width": "5"})]),
-            dict(name="Тест блока + зачепи", objects=[
-                ("test_block.stl", "Test_block", IDENT, (0.0, 0.0),
+            dict(name="Блоки + зачепи (пелюст. + конус)", objects=[
+                ("test_petal_block.stl", "Petal_block", IDENT, (0.0, 0.0),
                  {"layer_height": "0.2",
                   "sparse_infill_density": "13%",
                   "sparse_infill_pattern": "gyroid"}),
-                ("snap_clip.stl", "Snap_clip_1", ROT_Y90, (25.0, -10.0),
+                ("test_cone_block.stl", "Cone_block", IDENT, (0.0, -30.0),
+                 {"layer_height": "0.2",
+                  "sparse_infill_density": "13%",
+                  "sparse_infill_pattern": "gyroid"}),
+                ("test_petal_clip.stl", "Petal_clip_1", ROT_Y90, (30.0, -8.0),
                  {"layer_height": "0.16", "outer_wall_speed": "50",
                   "brim_type": "auto_brim", "brim_width": "3"}),
-                ("snap_clip.stl", "Snap_clip_2", ROT_Y90, (25.0, 10.0),
+                ("test_petal_clip.stl", "Petal_clip_2", ROT_Y90, (30.0, 8.0),
                  {"layer_height": "0.16", "outer_wall_speed": "50",
-                  "brim_type": "auto_brim", "brim_width": "3"})]),
+                  "brim_type": "auto_brim", "brim_width": "3"}),
+                # 31.07 в2: конус-кліп КІНЧИКОМ УНИЗ (IDENT). Зонд обидвох
+                # орієнтацій: кінчиком униз макс навіс 0.61 (конус голови 45°),
+                # головою вниз (ROT_X180, як було в в1) — 1.52: у повітрі
+                # висить кільцева UNDERCUT-грань барба. Кінчик ⌀3.6 на столі →
+                # brim 5. По 2 шт (1 робочий + 1 запас, як пелюсткові).
+                ("test_cone_clip.stl", "Cone_clip_1", IDENT, (-35.0, -8.0),
+                 {"layer_height": "0.16", "outer_wall_speed": "50",
+                  "brim_type": "auto_brim", "brim_width": "5"}),
+                ("test_cone_clip.stl", "Cone_clip_2", IDENT, (-35.0, 8.0),
+                 {"layer_height": "0.16", "outer_wall_speed": "50",
+                  "brim_type": "auto_brim", "brim_width": "5"})]),
         ],
         over={"layer_height": "0.24", "wall_loops": "2",
               "sparse_infill_density": "8%",
