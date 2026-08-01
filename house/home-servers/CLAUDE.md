@@ -740,3 +740,149 @@ Time Machine: «backup disk unavailable». У `log.smbd` — лише DFS-шум
 - **РЕЗУЛЬТАТ:** після фіксу share-ACL усе заробило БЕЗ жодних змін на Mac — старий запис
   бекап-диска підхопився сам, історія бекапів збереглася, бекап стартував. ✅
   Тобто **єдина причина** була stale share-ACL (мертвий SID), а не volume_uuid / Destination ID.
+
+
+---
+
+## Сесія 2026-08-01 — Proxmox у стійці, 10G-мережа, BMC через Tailscale
+
+**Фізичне підключення (фінальна схема):**
+| Порт | Куди | Призначення |
+|---|---|---|
+| LAN1 (i210, shared NCSI) | RB5009 **ether6** | **тільки BMC** `10.10.10.5` (ОС адреси НЕ має) |
+| LAN2 (i210) | — | вільний резерв |
+| CX4 `enp1s0f0np0` | CRS305 **sfp-sfpplus3** | trunk: VLAN 10 mgmt `10.10.10.10` + VLAN 30 `10.10.30.10` |
+| CX4 `enp1s0f1np1` | **NAS port2 напряму** | p2p сторедж `10.10.99.1/30`, MTU 9000 |
+
+**Карта:** Mellanox ConnectX-4 Lx (mlx5_core), 2×10G DAC. Обидва порти 10000Mb/s.
+
+**⚠️ КЛЮЧОВЕ ВІДКРИТТЯ — shared NIC і BMC:** AM5D4ID2 **не має** виділеного IPMI-порту
+(специфікація: 2×RJ45 i210 + IPMI через NCSI на LAN1; BMC bond0/eth0, active-backup з одним членом).
+Наслідок: якщо ОС має адресу на тому ж shared-порту, вона **НЕ бачить BMC** — комутатор не
+повертає кадр у порт, з якого він прийшов (`Destination Host Unreachable` на 10.10.10.5,
+хоча .1 і .50 пінгуються). **Рішення:** прибрати адресу ОС із shared-порту зовсім — mgmt переїхав
+на 10G trunk. Тепер шлях до BMC: нода → свіч → роутер → ether6 → BMC. Працює (0.4 ms).
+Також увімкнено в BMC **Keep Share NIC Link Up** (ASRock FAQ: лікує обриви iKVM на NCSI).
+
+**CRS305 (`10GbSwitch`) — trunk під ноду (зроблено через Winbox, Safe Mode):**
+- `sfp-sfpplus3` у бридж: `frame-types=admit-only-vlan-tagged`, `edge=yes`
+- bridge-vlan запис 0 (10,20,40,45,50): `tagged=sfp-sfpplus1,sfp-sfpplus3`
+- bridge-vlan запис 1 (VLAN 30): `tagged=sfp-sfpplus1,sfp-sfpplus3`, `untagged=sfp-sfpplus2` (NAS)
+- `sfp-sfpplus4` — вільний резерв
+
+**Proxmox `/etc/network/interfaces`:** vmbr0 (nic1) БЕЗ адреси; vmbr1 vlan-aware на enp1s0f0np0 +
+vmbr1.10 (10.10.10.10/24, gw 10.10.10.1) + vmbr1.30 (10.10.30.10/24); enp1s0f1np1 = 10.10.99.1/30 MTU 9000.
+- ⚠️ **`bridge-vids 2-4094` НЕ ставити** — ConnectX-4 має ліміт 512 VLAN на vport
+  (`mlx5e_vport_context_update_vlans: netdev vlans list size (4079) > (512)`). Ставити явний
+  список: `bridge-vids 10,20,30,40,45,50`.
+
+**Tailscale (вимога «BMC через інтернет») — ПРАЦЮЄ:**
+- Нода `pve` = **100.87.204.37**; `tailscale up --advertise-routes=10.10.10.0/24 --accept-routes`
+- `ip_forward=1` через `/etc/sysctl.d/99-tailscale.conf`; маршрут схвалено в адмінці
+- ⚠️ **Причина, чому спершу не працювало — ACL!** У політиці було
+  `dst: ["10.10.30.0/24:*","10.10.20.0/24:*"]` (спадок старої системи) — VLAN 10 не був дозволений.
+  Додано `"10.10.10.0/24:*"` → BMC відкривається з телефона через мобільний інтернет.
+- ⚠️ **Незакрита слабина:** subnet-router = сама нода. Якщо нода впаде, доступ до BMC через
+  інтернет впаде разом із нею — саме тоді, коли BMC найпотрібніший. TODO: другий subnet-router
+  у VLAN 10 (Mac mini `home-srv` / Pi-hole) або Tailscale/WireGuard на RB5009.
+- MagicDNS (`pve.mining-owl.ts.net`) працює лише для самої ноди; BMC/роутер/свіч — не члени
+  tailnet, тільки через локальні IP по subnet-маршруту.
+- `chattr +i /etc/resolv.conf` конфліктує з Tailscale DNS → знято, `tailscale set --accept-dns=false`.
+
+**Сторедж p2p нода↔NAS: 0.35-0.65 ms, jumbo 8972 `-M do` проходить.** (через свіч було 2.8 ms)
+
+**⚠️ УРОК — TrueNAS `interface.commit` (інцидент):** зміни мережі в SCALE висять як pending;
+вебморда показує бажаний стан, а не поточний (`interface.has_pending_changes` → True).
+`commit` з `rollback:true` + `checkin_timeout:60` **відкотився**, бо SSH-обхід зайняв 72 с.
+Далі `commit` з `rollback:false` застосував **ВСІ** pending-зміни — зокрема скидання
+`enp2s0f0` → NAS втратив `10.10.30.20`, вебморда й Tailscale зникли.
+**Правило:** перед `rollback:false` перевіряти, які саме зміни в черзі (`interface.query`);
+керуючий інтерфейс не має бути серед них. Або комітити з локальної консолі й одразу `checkin`.
+**Аварійний шлях, що врятував:** p2p-лінк `10.10.99.x` (CWWK **не має IPMI** — інших віддалених
+шляхів немає). Відновлено: `interface.update enp2s0f0 {"ipv4_dhcp": true}` + commit.
+**TODO:** KVM-over-IP для NAS (JetKVM) — критично, бо NAS без IPMI.
+
+**SSH-доступи:** нода — `root@10.10.10.10` (ключ Claude ще НЕ закинуто, пароль вручну);
+NAS — аліас `nas` (`truenas_admin@10.10.30.20`, ключ `~/.ssh/truenas_nas`).
+Ghostty: `TERM=xterm-ghostty` ламає nano/vi на віддалених — `TERM=xterm-256color` або heredoc.
+
+**🔜 НАСТУПНЕ:** PBS — датастор фізично на NAS, PBS ще НЕ встановлений. План: відновити CT 130 (pbs)
+із T7 (`vzdump`, 322 МБ, вже налаштований) → мережа у VLAN 30 → підмонтувати датастор із NAS
+(через `10.10.99.x`, jumbo) → додати як storage у Proxmox → відновити решту гостей.
+
+
+### Продовження сесії 2026-08-01 — PBS, storage, відновлення гостей
+
+**PBS — ПРАЦЮЄ (CT 130):**
+- Відновлено з T7: `pct restore 130 /mnt/backup/pve/vzdump-lxc-130-2026_06_24-19_37_10.tar.zst --storage local-zfs`
+- Мережа в конфігу вже була правильна (`bridge=vmbr1, tag=30, ip=10.10.30.12/24`) — збіглася з новою схемою
+- `mp0: /mnt/pbs-store,mp=/datastore` — bind-mount з хоста
+- Датастор: **`tank8TB-mirror/pbs-store`** на NAS (18.2G, owner `backup:backup`), цілий, з історією 31.05–08.06
+- NFS-шара на NAS: `/mnt/tank8TB-mirror/pbs-store`, Networks `10.10.99.0/30` (тільки p2p!), maproot backup
+- На хості в `/etc/fstab`: `10.10.99.2:/mnt/tank8TB-mirror/pbs-store /mnt/pbs-store nfs vers=4.2,hard,noatime,_netdev 0 0`
+- Storage у Proxmox: `pvesm add pbs pbs-nas --server 10.10.30.12 --datastore backup ...` → **active**
+- ⚠️ `--datastore` = ІМ'Я датастора (`backup`), не шлях. Помилка `Cannot find datastore '/datastore/backup'` = передали шлях.
+
+**Storage `vmstore-nas` (диски VM на NAS):**
+- NFS-шара: `/mnt/tank8TB-mirror/pve-storage`, Networks `10.10.99.0/30`, maproot root
+- `pvesm add nfs vmstore-nas --server 10.10.99.2 --export /mnt/tank8TB-mirror/pve-storage --content images,rootdir,backup --options vers=4.2`
+- Диски VM, що ВЦІЛІЛИ на NAS (новіші за бекапи — 09.06 проти 08.06!): 100/vm-100-disk-0.raw (100G ном/?),
+  150/vm-150-scsi0.raw (64G ном / 25G реально), 150/vm-150-disk-0.raw (500G ном / 230G реально), efidisks.
+- **Тому VM відтворювали через `qm create`, а НЕ `qmrestore`** — диски цілі й свіжіші за бекап; restore затер би день роботи.
+
+**Гості — фінальний стан:**
+| VMID | Що | Стан |
+|---|---|---|
+| CT 110 | pihole | ✅ відновлено, `10.10.30.15` (DHCP-резервація на RB5009 за MAC), у firewall-списку `PiHole` |
+| CT 130 | pbs | ✅ відновлено, `10.10.30.12` |
+| VM 111 | haos | ❌ НЕ відновлювати — **переїхав на Mac mini** (`10.10.30.11`, MAC 52:54:00:30:00:11) |
+| VM 120 | truenas | ❌ НЕ відновлювати — NAS тепер bare-metal CWWK |
+| VM 150 | genomics | ✅ створено `qm create`, працює |
+| VM 100 | windows10 | ⏳ ВІДКЛАДЕНО — команда `qm create` готова (див. нижче) |
+
+**⚠️ ВАЖЛИВО: `bridge=vmbr0` у старих конфігах → міняти на `vmbr1`** (vmbr0 тепер порожній під BMC).
+MAC-адреси зберігати — на RB5009 є DHCP-резервації: pihole `BC:24:11:65:78:F0`→.15,
+haos `BC:24:11:91:B3:A3`→.11, genomics MAC `BC:24:11:05:30:77`, windows `BC:24:11:FE:E0:0A`.
+
+**genomics (VM 150) — детально:**
+- `qm create 150 --name genomics --ostype l26 --bios ovmf --machine q35 --cores 8 --cpu host
+  --memory 32768 --balloon 0 --agent enabled=1 --scsihw virtio-scsi-single --boot order=scsi0 --onboot 1
+  --serial0 socket --vga serial0 --smbios1 uuid=30d02f4e-500a-4875-a1e1-c82ecc3f571e
+  --net0 virtio=BC:24:11:05:30:77,bridge=vmbr1,tag=30`
+- **Диски (фінально):** `scsi0` → **local-zfs** (перенесено `qm move-disk`, система/PostgreSQL/venv на NVMe);
+  `scsi1` → `vmstore-nas:150/vm-150-disk-0.raw` (500G, `/data`, ext4 на /dev/sdb, 243G зайнято);
+  `efidisk0` → на NAS.
+- Гість Debian 12, консоль `qm terminal 150` (vga=serial0). Юзер `seregas` uid 1000.
+- `/data/storage` → симлінк на `/mnt/nas`; NFS з гостя: `10.10.30.20:/mnt/tank8TB-mirror/projects/genomics`
+  (гість і NAS в одному VLAN 30 → трафік іде через CRS305 на 10G, роутер НЕ задіяний — p2p тут не потрібен)
+- Дані: input 106G, output 624G, references 955G (~1.7T). NFS-шара на NAS для `projects/genomics`, Networks `10.10.30.0/24`
+- Служби: `postgresql` ✓, `genomics-worker` (procrastinate) ✓
+- **swapfile 64G на /data ВИДАЛЕНО** (був неактивний; у fstab був мертвий UUID 33b22269 — прибрано).
+  Історія: своп раніше жив на окремому 64G диску на локальному NVMe (`virtio0`, backup=0) — загинув при переінсталяції.
+- ⚠️ **detect-stale.service падав `209/STDOUT Permission denied`:** писав лог у
+  `/data/storage/references/download-logs/` (на NFS). Причина: systemd відкриває StandardOutput **від root**,
+  а NFS робить root_squash → відмова, попри те що `seregas` пише вільно.
+  **Фікс:** drop-in (`systemctl edit`) → `StandardOutput/StandardError=append:/data/logs/detect-stale.log`
+  (локально на NVMe). **Принцип: логи НЕ тримати на тій шарі, недоступність якої вони мають документувати.**
+
+**🔜 НАСТУПНЕ (наступна сесія):**
+1. **RAM genomics** — підняти 32→40 ГБ (`qm shutdown 150` → `qm set 150 --memory 40960` → `qm start 150`).
+   Бюджет 64G: ARC 6 + PVE ~3 + pihole 0.5 + pbs 4 = ~13.5G → лишається ~50G. При 40G для genomics
+   Windows (8G) впритул → тримати вимкненим під час важких розрахунків (`onboot: 0`, сам не стартує).
+2. **Windows 10 (VM 100)** — готова команда:
+```
+qm create 100 --name windows10 --ostype win10 --bios ovmf --machine pc-q35-8.1 \
+  --cores 4 --sockets 1 --cpu host --memory 8192 \
+  --efidisk0 vmstore-nas:100/vm-100-efidisk-0.raw,efitype=4m,pre-enrolled-keys=1,size=528K \
+  --sata0 vmstore-nas:100/vm-100-disk-0.raw,size=100G \
+  --net0 virtio=BC:24:11:FE:E0:0A,bridge=vmbr1,tag=30 \
+  --boot order=sata0 --onboot 0 --vga std \
+  --ide0 none,media=cdrom --ide2 none,media=cdrom \
+  --smbios1 uuid=119d0ee9-d3a3-47ee-8772-e7536be1b739 \
+  --args "-drive file=/mnt/pve/vmstore-nas/images/100/usb-flash.img,if=none,id=usbstick,format=raw -device usb-storage,drive=usbstick,removable=on"
+```
+   ⚠️ UUID і `machine=pc-q35-8.1` зберегти навмисно (щоб Windows не просив реактивації; CPU все одно змінився).
+3. **T7 можна відключати** (`umount /mnt/backup` перед висмикуванням — exfat, там особисті дані).
+   Усі потрібні бекапи вже в PBS, диски VM на NAS.
+4. **Бекап-джоби в PBS** — налаштувати розклад для 110/130/150 (раніше були щоденні 23:00).
+5. Резервний subnet-router для BMC (щоб доступ не залежав від ноди) + KVM-over-IP для NAS.
