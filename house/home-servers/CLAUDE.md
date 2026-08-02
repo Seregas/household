@@ -886,3 +886,66 @@ qm create 100 --name windows10 --ostype win10 --bios ovmf --machine pc-q35-8.1 \
    Усі потрібні бекапи вже в PBS, диски VM на NAS.
 4. **Бекап-джоби в PBS** — налаштувати розклад для 110/130/150 (раніше були щоденні 23:00).
 5. Резервний subnet-router для BMC (щоб доступ не залежав від ноди) + KVM-over-IP для NAS.
+
+
+### PBS переїхав на NAS (LXC/Incus) — 2026-08-02
+
+**Мотивація:** прибрати NFS між PBS і датастором (повільна верифікація/GC) + зробити бекап-сервер
+незалежним від ноди, яку він бекапить.
+
+**Що зроблено:**
+1. **Containers** (Virtualization) на TrueNAS: Configuration → Global Settings → Enabled + Pool `tank8TB-mirror`
+2. Контейнер **`pbs`**: Debian trixie, 2 CPU / 4 GiB, автозапуск ✓
+   - **Disk:** source `/mnt/tank8TB-mirror/pbs-store` → path `/datastore`
+   - **NIC:** macvlan на `enp2s0f0` (VLAN 30) → адреса `10.10.30.12` (DHCP-резервація на RB5009 за MAC `10:66:6A:B1:25:61`)
+3. **PBS 4.2.4** з офіційного репо: `deb http://download.proxmox.com/debian/pbs trixie pbs-no-subscription`
+4. Датастор підключено **без перезапису**: `proxmox-backup-manager datastore create backup /datastore --reuse-datastore true`
+   → уся історія (24 знімки: ct/110, vm/111, vm/150) на місці
+5. Токен `root@pam!pve-node` + `acl update /datastore/backup DatastoreAdmin`
+6. Storage на ноді: `pvesm add pbs pbs-nas --server 10.10.30.12 --datastore backup --username 'root@pam!pve-node' ...`
+7. **Prune/GC у PBS:** prune-job `daily-prune` (01:00, keep 7d/4w/6m); `datastore update backup --gc-schedule "sat 02:00"`
+8. **Бекап-джоб на ноді:** `pvesh create /cluster/backup --schedule "23:00" --storage pbs-nas --mode snapshot --vmid 110,150 --compress zstd`
+9. NFS-шара `pbs-store` **вимкнена**; CT 130 на ноді зупинений (`--onboot 0`) як запасний варіант
+
+**⚠️ ГОЛОВНА ПАСТКА — ПРАВА (три ланки, всі проявились по черзі):**
+- Непривілейований LXC мапить uid: контейнерний 0 → хостовий **2147000001** (`raw.idmap`, range 568).
+  Датастор (uid 34 `backup` на хості) у контейнері бачився як **`nobody:nogroup`**.
+- **Фікс:** idmapped mount → `incus config device set pbs disk0 shift true`
+  (дані на диску НЕ змінюються → старий CT 130 через NFS лишається робочим fallback).
+  ⚠️ TrueNAS: `Map User/Group IDs` для системного `backup` **не працює** — `[EINVAL] userns_idmap: This attribute cannot be changed`.
+- Далі: `backup owner check failed (root@pam!pve-node != root@pam)` — групи бекапів створював старий PBS
+  від `root@pam`. **Фікс:** Change Owner на групах (`ct/110`, `vm/111`, `vm/150`) → `root@pam!pve-node`.
+- Далі: `unable to create owner file "/datastore/ct/110/owner" - Permission denied` і
+  `update atime failed for chunk ... EPERM` — бо `ct/`, `vm/` і **файли чанків** належали uid **0**,
+  а не 34. NFS це маскував (`maproot=backup` мапив усе), локальний доступ — виявив.
+  **Фікс:** `chown -R 34:34 /mnt/tank8TB-mirror/pbs-store/` (пройшов за 1.1 с, 65538 каталогів).
+- Побічно: після невдалого vzdump лишається lock + ZFS-снапшот → `pct unlock 110` +
+  `zfs destroy rpool/data/subvol-110-disk-0@vzdump` (за потреби спершу `umount /mnt/vzsnap0`).
+
+**Результат тестового бекапу CT 110:** 1.63 с, записано 289 MiB з 1.577 GiB (стиснуто 71 MiB),
+**дедуплікація перевикористала 82.1%** з червневого знімка. Ланцюг нода → PBS(NAS) → локальний ZFS працює.
+
+**DNS-схема (нагадування, бо я її раз порушив):**
+- канонічне: `<хост>.<vlan>.home.arpa` тип **A** (`pve.srv`, `nas.srv`, `pihole.srv`, `pbs.srv`, `router.mgmt/lan/srv/iot/guest`)
+- короткий аліас: `<хост>.home.arpa` тип **CNAME** на канонічне (НЕ окремий A-запис!)
+- додано: `pbs.srv.home.arpa` A → 10.10.30.12, `pbs.home.arpa` CNAME → pbs.srv
+
+**Pi-hole (CT 110) — локальні імена не резолвились після відновлення:**
+- Pi-hole **v6.2.2** (є новіші: Core 6.4.3 / Web 6.6 / FTL 6.7 — оновити окремо через `pihole -up`)
+- Причина: не було conditional forwarding для `home.arpa` → повертав NOERROR без відповідей
+- Фікс: `pihole-FTL --config dns.revServers '["true,10.10.30.0/24,10.10.30.1,home.arpa"]'`
+  (+ надійніше `misc.dnsmasq_lines '["server=/home.arpa/10.10.30.1"]'` — працює з усіх VLAN)
+- ⚠️ `pct exec 110 -- pihole` не знаходить бінар — потрібен повний шлях `/usr/local/bin/pihole`
+
+**⚠️ Ризик, який лишається:** Containers у 25.10 — **експериментальна** функція («не покладайтеся для
+продуктивних навантажень», повна підтримка з TrueNAS 26). `shift=true` виставлено через CLI, а TrueNAS
+попереджає, що зміни поза UI можуть не пережити оновлення. Мітигація: датастор поза контейнером —
+при поломці контейнер перестворюється за 15 хв. **TrueNAS 26 зараз лише 26-BETA.2 — НЕ оновлюватись.**
+
+**🔜 Далі:**
+- Тестове **відновлення** з нового PBS (поки не зроблено!) → лише після цього видаляти CT 130
+- Windows 10 (VM 100) — команда `qm create` готова (див. вище)
+- RAM genomics 32→40 ГБ
+- Додати `100` у бекап-джоб після створення Windows
+- (Опц.) DNS-імена для VLAN 10: `pve.mgmt.home.arpa` → 10.10.10.10, `bmc.mgmt.home.arpa` → 10.10.10.5
+- Оновити Pi-hole (`pihole -up`) — окремо, не змішуючи зі змінами DNS
