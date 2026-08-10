@@ -949,3 +949,30 @@ qm create 100 --name windows10 --ostype win10 --bios ovmf --machine pc-q35-8.1 \
 - Додати `100` у бекап-джоб після створення Windows
 - (Опц.) DNS-імена для VLAN 10: `pve.mgmt.home.arpa` → 10.10.10.10, `bmc.mgmt.home.arpa` → 10.10.10.5
 - Оновити Pi-hole (`pihole -up`) — окремо, не змішуючи зі змінами DNS
+
+### 10.08.2026 — boot-pool ВІДНОВЛЕНО + температури у стійці
+
+**Intel S3500 повернувся** (Сергій вставив кабель). Тепер `sdd` = INTEL SSDSC2BB120G4 `CVWL422401RN120LGN`.
+Літери в системі: **sda** Samsung (boot), **sdb/sdc** Toshiba 8TB, **sdd** Intel (boot).
+- boot-pool: **ONLINE**, mirror-0 = `sdd3` + `sda3`, усі лічильники 0.
+- Були 2 CKSUM на `sdd3` — наслідок відпадання диска (SMART: **Unsafe_Shutdown_Count 202** при 214 power cycles).
+  Зроблено `zpool clear boot-pool` + `zpool scrub` → **repaired 0B, 0 errors**. Разовий інцидент, не деградація.
+- SMART Intel чистий: 0 realloc / 0 pending / 0 CRC / 0 End-to-End, Media_Wearout 096 (зношення ~0%).
+
+**⚠️ ТЕМПЕРАТУРИ у стійці (тісний корпус) — базовий рівень зріс:**
+| Диск | На столі (30.07) | У стійці (10.08) |
+|------|------------------|------------------|
+| Toshiba sdb | 42–43 °C | **49 °C** (hist max 51) |
+| Toshiba sdc | 41–42 °C | **47 °C** (hist max 51) |
+| Samsung sda (boot SSD) | — | 46 °C |
+| Intel sdd (boot SSD) | — | 43 °C internal / 36 case |
+
+Заміряно при **%util ≈ 5%** (легкий запис 1–3 МБ/с — бекап HAOS `10.10.30.11` на шар timemachine).
+Тобто +6…7 °C проти столу — причина не навантаження, а брак продуву в 10" корпусі.
+Формально в межах (стеля MG10 ~55–60 °C), але під scrub (нд 02:00, 2.75T) чи resilver вийде під 55 °C.
+**ДІЇ:** (1) додати вентилятор на HDD-лотки — знімає зазвичай 5–8 °C; (2) перевірити, чи жмут
+SATA-power/SAS не перекриває забір повітря; (3) алерти з порогом ~45–48 °C (штатні в 25.10
+автоматичні за max operating temp → спрацюють лише на 55–60 °C, надто пізно).
+
+**Спостереження:** SMB-сесія до шару `timemachine` з `10.10.30.11` (HAOS) — тобто Home Assistant
+теж бекапиться на цей шар, не лише MacBook.
