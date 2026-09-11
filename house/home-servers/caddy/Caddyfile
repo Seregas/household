@@ -50,6 +50,8 @@
 
 	@nas host nas.pvt.sirohas.space
 	handle @nas {
+		# TrueNAS редіректить / на https://<своя IP>/ui/ — робимо редірект самі, до проксі
+		redir / /ui/ 302
 		reverse_proxy https://10.10.30.20:443 {
 			import insecure_upstream
 		}
@@ -80,6 +82,8 @@
 	# --- Pi-hole (CT 110) ---
 	@pihole host pihole.pvt.sirohas.space
 	handle @pihole {
+		# Pi-hole v6: / віддає 403, інтерфейс на /admin/
+		redir / /admin/ 302
 		reverse_proxy 10.10.30.15:80
 	}
 

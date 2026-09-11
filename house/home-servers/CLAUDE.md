@@ -400,11 +400,19 @@ github.com/caddy-dns/cloudflare` (бінар у `/usr/bin/caddy`, після `ap
 **Перевірено з CT 115:** усі 8 upstream-портів відкриті (включно з VLAN 10 після правил).
 
 **TODO (Сергій):**
-- [ ] Cloudflare API token → `/etc/caddy/env` → `systemctl restart caddy` → у journal `certificate obtained successfully`.
+- [x] Cloudflare API token → `/etc/caddy/env` → **сертифікат `*.pvt.sirohas.space` отримано** (LE, до 2026-12-10, авто-оновлення).
+- [ ] ⚠️ **ВІДКЛИКАТИ і перевипустити токен**: дефолтний юніт Caddy має `--environ`, який на старті дампить env
+  (разом із токеном) у journal — перший старт це зробив, токен у логах CT 115 і був видимий у сесії. Прибрано
+  drop-in'ом (`ExecStart=` без `--environ`). Новий токен → `/etc/caddy/env` → `systemctl restart caddy`.
 - [ ] Tailscale admin → DNS → restricted nameserver `10.10.30.15` для `pvt.sirohas.space` (поруч із `home.arpa`).
 - [ ] HAOS `configuration.yaml`: `http: use_x_forwarded_for: true, trusted_proxies: [10.10.30.13]` + restart, інакше 400.
 - [ ] Бекап конфігу RB5009 (після qBittorrent + proxy правил); додати CT 115 у PBS-бекап-джоб.
-- [ ] (Опц.) Після переходу на імена — зняти `AuthSubnetWhitelist`-подібні полегшення, де є; DNS-імена VLAN 10 в `home.arpa`.
+- [ ] (Опц.) DNS-імена VLAN 10 в `home.arpa`.
+
+**Перевірено через проксі (з CT 115, `curl https://<h>.pvt.sirohas.space/`):** jellyfin 302→/web/ · torrent 200 · nas 302→/ui/ (власний `redir`,
+бо TrueNAS редіректить на свою IP) · pbs/pve/bmc 200 · pihole 302→/admin/ (власний `redir`, `/` у Pi-hole v6 = 403) · ha 400 (до trusted_proxies) · невідомий 404.
+⚠️ `caddy validate` від root створює `/var/log/caddy/access.log` як root → сервіс падає з permission denied. Валідувати
+`runuser -u caddy -- env CLOUDFLARE_API_TOKEN=<40×A> caddy validate --config /etc/caddy/Caddyfile`.
 
 ---
 
