@@ -348,12 +348,20 @@ output 1.5 T, input/hg002 **401 G**), timemachine 581 G, pve-storage 228 G, medi
   довгі inline-команди з `docker exec` — виносити в скрипт через write_file + scp.
 
 **TODO (крок 5 — у WebUI qBittorrent, Сергій сам):**
-- [ ] Змінити пароль admin (Options → WebUI).
-- [ ] Downloads: default save `/downloads`; "Keep incomplete in" `/downloads/incomplete`; категорії
-  `Movies → /media/Movies`, `TV → /media/TV Shows`. Pre-allocation off (ZFS).
-- [ ] Connection: порт 51413, UPnP/NAT-PMP off. Перевірити зелений індикатор з'єднання (вхідний порт).
+- [x] Пароль admin задано. ⚠️ Дефолт TrueNAS-app: `AuthSubnetWhitelist=10/8,172.16/12,192.168/16` увімкнено +
+  CSRF off + HostHeaderValidation off → вхід без пароля з усього LAN і CSRF→RCE-вектор. Виправлено: whitelist вимкнено,
+  CSRF protection on, Host header validation on.
+- [x] Downloads: default save `/downloads`; incomplete `/downloads/incomplete`; категорії `Movies → /media/Movies`,
+  `TV Shows → /media/TV Shows`. Pre-allocation off.
+- [x] **Torrent Management Mode = Automatic** + "When category changed → Relocate". ⚠️ У Manual-режимі (дефолт)
+  категорія в WebUI-діалозі НЕ підставляє шлях — торент лишається в `/downloads` (перший фільм так і завис;
+  підтверджено в `torrents.db`: category=Movies, target_save_path=/downloads). Лише AutoTMM робить "категорія → тека".
+- [x] Connection: порт 51413, UPnP off; індикатор зелений (проброс працює).
 - [ ] BitTorrent: ліміти сідування під Toloka (ratio / час) — за політикою трекера.
 - [ ] Бекап конфігу RB5009; геномна сесія: chm13 1.7 T, hg002 401 G, цільовий розмір диска VM 150 → після цього розширити квоти.
+- ℹ️ Конфіг: `/mnt/.ix-apps/app_mounts/qbittorrent/config/qBittorrent/qBittorrent.conf`; стан торентів — `torrents.db`
+  (SQLite у WAL-режимі: копіювати разом з `-wal`/`-shm`, інакше порожня). `Connection\PortRangeMin=6881` — мертвий
+  ключ старого формату, реальний порт `Session\Port`.
 
 ---
 
