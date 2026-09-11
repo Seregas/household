@@ -401,10 +401,11 @@ github.com/caddy-dns/cloudflare` (бінар у `/usr/bin/caddy`, після `ap
 
 **TODO (Сергій):**
 - [x] Cloudflare API token → `/etc/caddy/env` → **сертифікат `*.pvt.sirohas.space` отримано** (LE, до 2026-12-10, авто-оновлення).
-- [ ] ⚠️ **ВІДКЛИКАТИ і перевипустити токен**: дефолтний юніт Caddy має `--environ`, який на старті дампить env
-  (разом із токеном) у journal — перший старт це зробив, токен у логах CT 115 і був видимий у сесії. Прибрано
-  drop-in'ом (`ExecStart=` без `--environ`). Новий токен → `/etc/caddy/env` → `systemctl restart caddy`.
-- [ ] Tailscale admin → DNS → restricted nameserver `10.10.30.15` для `pvt.sirohas.space` (поруч із `home.arpa`).
+- [x] Токен перевипущено (старий витік у journal через `--environ` у дефолтному юніті; прибрано drop-in'ом
+  `ExecStart=` без `--environ`; journal чистий). ⚠️ Урок: ніколи не запускати Caddy з `--environ`, якщо секрети в env.
+- [x] Tailscale split DNS: `pvt.sirohas.space` → **10.10.30.15 (Pi-hole) + 10.10.30.1 (роутер, fallback)**; `home.arpa` → 10.10.30.1 (було).
+  Subnet-router'и в tailnet: **haos-ck** (VLAN 30) і **pve** (VLAN 10); Tailscale-app на NAS (`nasik`) маршрутів НЕ анонсує.
+  Перевірено з Mac поза домом: jellyfin/ha/pve по HTTPS, сертифікат валідний.
 - [x] HAOS `configuration.yaml` `http:` — `trusted_proxies: [172.30.33.0/24, 127.0.0.1, 10.10.30.13]` (перші два — мережа аддонів/локально, вже були) → `ha.pvt.sirohas.space` 200.
 - [ ] Бекап конфігу RB5009 (після qBittorrent + proxy правил); додати CT 115 у PBS-бекап-джоб.
 - [ ] (Опц.) DNS-імена VLAN 10 в `home.arpa`.
