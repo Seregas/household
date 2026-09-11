@@ -8,7 +8,7 @@
 
 > **⚡ Актуальний стан на 2026-09-11** (нижче в цій секції — історія від 24.06, частково застаріла):
 > NAS bare-metal у стійці, `tank8TB-mirror` імпортовано (75 %); ix-apps: **Jellyfin 30013, qBittorrent 30024, Tailscale**;
-> Proxmox-нода відновлена (CT 110 pihole, VM 150 genomics), SSH на ноду — досі лише пароль (ключ `~/.ssh/pve_admin` ще не покладено).
+> Proxmox-нода відновлена (CT 110 pihole, **CT 115 proxy/Caddy**, VM 150 genomics); `ssh pve` — по ключу. Внутрішні імена: **`*.pvt.sirohas.space`** (див. сесію 2026-09-11 ч.2).
 > Останнє: **"Сесія 2026-09-11 — qBittorrent на NAS"** — там же TODO.
 
 **Зроблено (сесія 24.06.2026 — від голого заліза до готової ноди):**
@@ -362,6 +362,49 @@ output 1.5 T, input/hg002 **401 G**), timemachine 581 G, pve-storage 228 G, medi
 - ℹ️ Конфіг: `/mnt/.ix-apps/app_mounts/qbittorrent/config/qBittorrent/qBittorrent.conf`; стан торентів — `torrents.db`
   (SQLite у WAL-режимі: копіювати разом з `-wal`/`-shm`, інакше порожня). `Connection\PortRangeMin=6881` — мертвий
   ключ старого формату, реальний порт `Session\Port`.
+
+---
+
+## Сесія 2026-09-11 (ч.2) — Caddy reverse proxy: *.pvt.sirohas.space замість IP:port
+
+**Рішення:** домен `sirohas.space` (NS Cloudflare), внутрішні сервіси — у **підзоні `pvt.`** (private), корінь домену
+вільний під публічне. Проксі — **Caddy у LXC на Proxmox-ноді** (не NAS: NAS = сховище + свої apps, 443 там зайнятий
+UI TrueNAS; не Mac mini: macOS поза PBS-бекапом, зчеплення з HAOS). Split-horizon: у Cloudflare **нічого не публікуємо**
+(зона лише для DNS-01), внутрішні імена резолвляться MikroTik/Pi-hole/Tailscale.
+
+**SSH на ноду:** ключ `~/.ssh/pve_admin` (ed25519, `macbook-202604`) додано в `authorized_keys` — **`ssh pve` працює без пароля**.
+RSA-ключ, що там був, — власний `id_rsa.pub` ноди (Proxmox додає сам), не чіпати.
+
+**CT 115 `proxy`** — Debian 13, 1 CPU / 512 M / 4 G (local-zfs), `vmbr1` tag 30, static **10.10.30.13/24**, gw .1,
+DNS 10.10.30.15, unprivileged, onboot, nesting=1. Caddy **2.11.4** з офіційного apt-репо + `caddy add-package
+github.com/caddy-dns/cloudflare` (бінар у `/usr/bin/caddy`, після `apt upgrade caddy` плагін треба додати знову!).
+- Caddyfile: **`home-servers/caddy/Caddyfile`** (git — джерело правди) → деплой: `scp … pve:/tmp/ && pct push 115 /tmp/Caddyfile /etc/caddy/Caddyfile`
+  → `pct exec 115 -- caddy validate --config /etc/caddy/Caddyfile` (з `CLOUDFLARE_API_TOKEN=<40 символів>` в env, інакше плагін лається) → `systemctl reload caddy`.
+- Токен: `/etc/caddy/env` (0600) → systemd drop-in `caddy.service.d/env.conf` `EnvironmentFile=`. Cloudflare API token
+  **Zone:DNS:Edit тільки на sirohas.space**. Wildcard `*.pvt.sirohas.space`, DNS-01, `resolvers 1.1.1.1` (щоб перевірка
+  TXT не йшла через внутрішній wildcard).
+- Хости → upstream: jellyfin→nas:30013 · torrent→nas:30024 (`header_up Host {upstream_hostport}` — бо в qBittorrent
+  увімкнено Host header validation) · nas→https nas:443 · pbs→https .12:8007 · pve→https 10.10.10.10:8006 ·
+  bmc→https 10.10.10.5 · pihole→.15:80 · ha→.11:8123. Self-signed upstream'и — `tls_insecure_skip_verify`. Невідомий хост → 404.
+
+**RB5009 (усе з коментарями):**
+- DNS static: `proxy.srv.home.arpa` A 10.10.30.13 + `proxy.home.arpa` CNAME (за схемою); **regexp `^[a-z0-9-]+\.pvt\.sirohas\.space$` → 10.10.30.13**.
+- Filter forward (перед "IoT -> MGMT drop"): `LAN_NETS → 10.10.30.13 tcp 80,443`; `10.10.30.13 → 10.10.10.10:8006`; `10.10.30.13 → 10.10.10.5:443`.
+  ⚠️ З VLAN 30 у VLAN 10 forward закритий (перевірено з NAS: таймаут) — відкрито лише для IP проксі, точково.
+- ⚠️ Прапорець `I` на щойно доданих правилах — тимчасовий (компіляція), через секунди зникає. Один синтаксично
+  невірний підкоманд у рядку `ssh home-router '…; …'` відкидає ВЕСЬ рядок (`from=` у print — не існує).
+
+**Pi-hole (CT 110):** `misc.dnsmasq_lines = ["server=/home.arpa/10.10.30.1","server=/pvt.sirohas.space/10.10.30.1"]`
+(команда `pihole-FTL --config …`; бінар `/usr/bin/pihole-FTL`, а `pihole` — `/usr/local/bin/pihole`). Перевірено: резолвить з Pi-hole, з CT 115.
+
+**Перевірено з CT 115:** усі 8 upstream-портів відкриті (включно з VLAN 10 після правил).
+
+**TODO (Сергій):**
+- [ ] Cloudflare API token → `/etc/caddy/env` → `systemctl restart caddy` → у journal `certificate obtained successfully`.
+- [ ] Tailscale admin → DNS → restricted nameserver `10.10.30.15` для `pvt.sirohas.space` (поруч із `home.arpa`).
+- [ ] HAOS `configuration.yaml`: `http: use_x_forwarded_for: true, trusted_proxies: [10.10.30.13]` + restart, інакше 400.
+- [ ] Бекап конфігу RB5009 (після qBittorrent + proxy правил); додати CT 115 у PBS-бекап-джоб.
+- [ ] (Опц.) Після переходу на імена — зняти `AuthSubnetWhitelist`-подібні полегшення, де є; DNS-імена VLAN 10 в `home.arpa`.
 
 ---
 

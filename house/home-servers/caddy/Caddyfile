@@ -1,0 +1,97 @@
+# Caddy reverse proxy — CT 115 "proxy" (10.10.30.13, VLAN 30) on Proxmox node
+# Всі внутрішні сервіси під *.pvt.sirohas.space. Wildcard-сертифікат Let's Encrypt через
+# Cloudflare DNS-01 (токен у /etc/caddy/env → CLOUDFLARE_API_TOKEN, тільки Zone:DNS:Edit на sirohas.space).
+# Деплой: git → scp на ноду → pct push 115 → `caddy validate` → `systemctl reload caddy`.
+
+{
+	email admin@sirohas.space
+}
+
+(internal_tls) {
+	tls {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+		# перевірка поширення TXT через публічні резолвери, НЕ через Pi-hole/роутер
+		# (внутрішній wildcard *.pvt.sirohas.space інакше перехопить _acme-challenge)
+		resolvers 1.1.1.1 1.0.0.1
+	}
+}
+
+# Upstream з self-signed сертифікатом (TrueNAS / Proxmox / PBS / BMC)
+(insecure_upstream) {
+	transport http {
+		tls
+		tls_insecure_skip_verify
+	}
+}
+
+*.pvt.sirohas.space {
+	import internal_tls
+	encode zstd gzip
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 20mb
+			roll_keep 5
+		}
+	}
+
+	# --- NAS (TrueNAS SCALE, 10.10.30.20) ---
+	@jellyfin host jellyfin.pvt.sirohas.space
+	handle @jellyfin {
+		reverse_proxy 10.10.30.20:30013
+	}
+
+	@torrent host torrent.pvt.sirohas.space
+	handle @torrent {
+		# qBittorrent з увімкненою Host header validation — віддаємо йому свій upstream-хост
+		reverse_proxy 10.10.30.20:30024 {
+			header_up Host {upstream_hostport}
+		}
+	}
+
+	@nas host nas.pvt.sirohas.space
+	handle @nas {
+		reverse_proxy https://10.10.30.20:443 {
+			import insecure_upstream
+		}
+	}
+
+	@pbs host pbs.pvt.sirohas.space
+	handle @pbs {
+		reverse_proxy https://10.10.30.12:8007 {
+			import insecure_upstream
+		}
+	}
+
+	# --- Proxmox-нода (VLAN 10 — потрібне firewall-правило 10.10.30.13 → 10.10.10.x) ---
+	@pve host pve.pvt.sirohas.space
+	handle @pve {
+		reverse_proxy https://10.10.10.10:8006 {
+			import insecure_upstream
+		}
+	}
+
+	@bmc host bmc.pvt.sirohas.space
+	handle @bmc {
+		reverse_proxy https://10.10.10.5:443 {
+			import insecure_upstream
+		}
+	}
+
+	# --- Pi-hole (CT 110) ---
+	@pihole host pihole.pvt.sirohas.space
+	handle @pihole {
+		reverse_proxy 10.10.30.15:80
+	}
+
+	# --- Home Assistant (HAOS VM на Mac mini). Потребує в configuration.yaml:
+	#     http: { use_x_forwarded_for: true, trusted_proxies: [10.10.30.13] }
+	@ha host ha.pvt.sirohas.space
+	handle @ha {
+		reverse_proxy 10.10.30.11:8123
+	}
+
+	# Невідомий хост у зоні — явна відповідь замість дефолтного бекенду
+	handle {
+		respond "no such service" 404
+	}
+}
