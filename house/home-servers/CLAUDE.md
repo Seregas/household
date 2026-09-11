@@ -6,6 +6,11 @@
 
 ## 📍 ДЕ МИ ЗАРАЗ (читати першим у новій сесії)
 
+> **⚡ Актуальний стан на 2026-09-11** (нижче в цій секції — історія від 24.06, частково застаріла):
+> NAS bare-metal у стійці, `tank8TB-mirror` імпортовано (75 %); ix-apps: **Jellyfin 30013, qBittorrent 30024, Tailscale**;
+> Proxmox-нода відновлена (CT 110 pihole, VM 150 genomics), SSH на ноду — досі лише пароль (ключ `~/.ssh/pve_admin` ще не покладено).
+> Останнє: **"Сесія 2026-09-11 — qBittorrent на NAS"** — там же TODO.
+
 **Зроблено (сесія 24.06.2026 — від голого заліза до готової ноди):**
 - ✅ Залізо зібрано: AM5D4ID2 + 9900X, 2×32 DDR5 (A1/B1), Samsung 990 PRO 1TB, NH-D12L
 - ✅ Прошивки: BMC 1.05→**2.05.00** (закрито CVE-2024-54085), BIOS 10.09→**11.04** (AGESA 1.2.0.3b)
@@ -307,6 +312,48 @@ ssh pve   # MacBook key (~/.ssh/pve_admin) — налаштувати на но�
 - [ ] Перезапустити довгі SMART (якщо переб'ються) АБО пустити у фоні.
 - [ ] **ІМПОРТ**: `zpool import -f tank8TB-mirror` (або Storage → Import Pool). НЕ створювати!
 - [ ] Далі: NFS/PBS-прив'язки до Proxmox, SMB/TimeMachine/Jellyfin (UID 568, ACL).
+
+---
+
+## Сесія 2026-09-11 — qBittorrent на NAS (ix-app) + чистка pve-storage + проброс порту
+
+**Рішення:** торент-клієнт — **на NAS як ix-app**, не LXC на Proxmox. Аргументи: NAS простоює (load 0.1), диски —
+одне й те саме вузьке місце в обох варіантах (на Proxmox ще й NFS-шар зверху), права збігаються з Jellyfin (UID 568),
+Jellyfin уже ix-app. **Без VPN** (Україна — практика "абуз" відсутня; приватний трекер Toloka → ratio важливіший
+за анонімність, потрібен вхідний порт). VPN (gluetun) додається пізніше через custom compose, якщо знадобиться.
+⚠️ Unprivileged LXC НЕ може монтувати NFS сам — на Proxmox це робилося б через bind-mount з хоста (`pct set -mp0`).
+
+**Стан пулу на старті (75 %, 1.65 T вільно):** genomics 4.55 T (references/chm13 **1.7 T**, gnomad 527 G,
+output 1.5 T, input/hg002 **401 G**), timemachine 581 G, pve-storage 228 G, media 147 G (→ 57 G після чистки Сергієм).
+Диск genomics-VM (`vm-150-disk-0.raw`, sparse 500 G) активно росте: 182 → 225 G за добу — квотою не обмежується.
+
+**Зроблено:**
+- ✅ `pve-storage/dump/` очищено (31 G): `.vma.dat` VM 120 від інциденту 29.05 + приховані обірвані rsync-темпи
+  `.vzdump-qemu-100/111-*.zst.XXXXXX` (27–28.05). Жоден не був валідним бекапом. Тека лишена (у конфігу PVE-сховища).
+- ✅ Датасет **`tank8TB-mirror/downloads`**: recordsize **128K** (торент пише випадковими шматками), acltype posix
+  (успадковано), `apps:apps 770`, **refquota 150 G**. Окремо від `media`, щоб Jellyfin не бачив часткові файли.
+- ✅ **ACL `media`** (NFSv4, рекурсивно, з успадкуванням): `group:apps` READ → **MODIFY**; решта записів
+  (owner@ FULL, group@ MODIFY, builtin_users MODIFY, builtin_administrators FULL) без змін. Jellyfin монтує `media` RO —
+  не зачеплено. **refquota 400 G** на `media`.
+- ✅ **App `qbittorrent`** (community, app 1.4.10 / qBittorrent 5.2.3): run_as 568:568, TZ Europe/Kyiv,
+  `/downloads` → `/mnt/tank8TB-mirror/downloads`, `/media` → `/mnt/tank8TB-mirror/media` (RW),
+  WebUI **`http://10.10.30.20:30024`**, BT-порт **51413 tcp+udp**, ліміти 2 CPU / 2 G. Контейнер `ix-qbittorrent-qbittorrent-1`.
+  Тимчасовий пароль admin — у `docker logs` контейнера (поки не заданий власний).
+- ✅ **RB5009** (усі з коментарями): NAT `dstnat` tcp+udp 51413 → 10.10.30.20 ("qBittorrent on NAS: inbound BitTorrent …")
+  + filter `forward accept connection-nat-state=dstnat in-interface-list=WAN dst 10.10.30.20:51413` tcp/udp
+  ("WAN -> NAS qBittorrent BT … (dstnat)"), вставлено перед "defconf: drop all from WAN not DSTNATed".
+  Без цих filter-правил dstnat-трафік падав би в Default drop. WAN — публічна IP напряму по DHCP (94.178.x.x, без PPPoE/double-NAT);
+  UPnP лишено вимкненим свідомо. ⚠️ Бекап конфігу роутера після змін — TODO.
+- ℹ️ Read-only перевірки: `/tmp/qbt-check.sh` на NAS (docker ps/exec/logs, порти). Desktop Commander блокує деякі
+  довгі inline-команди з `docker exec` — виносити в скрипт через write_file + scp.
+
+**TODO (крок 5 — у WebUI qBittorrent, Сергій сам):**
+- [ ] Змінити пароль admin (Options → WebUI).
+- [ ] Downloads: default save `/downloads`; "Keep incomplete in" `/downloads/incomplete`; категорії
+  `Movies → /media/Movies`, `TV → /media/TV Shows`. Pre-allocation off (ZFS).
+- [ ] Connection: порт 51413, UPnP/NAT-PMP off. Перевірити зелений індикатор з'єднання (вхідний порт).
+- [ ] BitTorrent: ліміти сідування під Toloka (ratio / час) — за політикою трекера.
+- [ ] Бекап конфігу RB5009; геномна сесія: chm13 1.7 T, hg002 401 G, цільовий розмір диска VM 150 → після цього розширити квоти.
 
 ---
 
