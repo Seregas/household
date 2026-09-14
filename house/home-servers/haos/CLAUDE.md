@@ -1,6 +1,6 @@
 # Home Assistant OS на Mac mini M4 (QEMU) — відновлено з бекапу
 
-## Поточний стан (2026-06-21)
+## Поточний стан (2026-09-14)
 
 ✅ **Працює.** HA відновлено з бекапу і запущено на Mac mini M4 у QEMU.
 
@@ -12,7 +12,8 @@
 | Веб | http://10.10.30.11:8123 |
 | Мережа VM | vmnet-bridged через `en0`, MAC `52:54:00:30:00:11` |
 | SIA Alarm | `:8124` слухає ✅ (охоронна панель шле сюди) |
-| Console | `telnet 127.0.0.1 6663` (лог: `~/haos-install/haos-serial.log`) |
+| Console | `ssh home-srv` → `telnet 127.0.0.1 6663` (лог: `~/haos-install/haos-serial.log`) |
+| Tailscale | вузол `haos-ck` (`100.115.199.25`), той самий, що був на Proxmox; з MacBook `http://100.115.199.25:8123` працює |
 
 > ⚠️ **Автостарту ще немає** — VM піднімається вручну (`sudo run-haos.sh`).
 > Після ребуту mac-mini HA НЕ підніметься сам. LaunchDaemon — у TODO.
@@ -61,8 +62,21 @@ qemu-system-aarch64 \
 
 **Керування:**
 - стоп: `sudo pkill -f 'qemu-system-aarch64 -name haos'`
-- консоль HAOS: `telnet 127.0.0.1 6663` (login `root` → `ha …`)
+- консоль HAOS: `telnet 127.0.0.1 6663` (login `root` → `ha …`); вихід з telnet `Ctrl+]` → `quit`
 - IP VM: `arp -an | grep 52:54:0:30:0:11`
+
+**HA CLI / add-ons (з `ha >`, за потреби `login` → root shell):**
+- `ha addons` deprecated → `ha apps …` (info/logs/start/stop/restart/uninstall/install/update). Команди `options` в CLI **немає** взагалі.
+- Контейнери тепер `app_<slug>`, напр. `app_a0d7b954_tailscale` (не `addon_…`).
+- Змінити опції add-on без UI — тільки через Supervisor API, і **повним** набором опцій (Supervisor замінює конфіг цілком):
+  ```
+  TOKEN=$(docker exec hassio_cli printenv SUPERVISOR_TOKEN)
+  ha apps info a0d7b954_tailscale --raw-json | jq .data.options   # поточний набір
+  curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+    -X POST http://172.30.32.2/addons/a0d7b954_tailscale/options -d '{"options":{…}}'
+  ```
+- Tailscale CLI всередині контейнера: `docker exec app_a0d7b954_tailscale /opt/tailscale status` (бінарник — файл `/opt/tailscale`, не в PATH).
+- Логи обрізані буфером; для повного логу в опціях `log_suppression: false`, потім `ha apps logs … > /tmp/ts.log`.
 
 ---
 
@@ -94,7 +108,19 @@ HA версія бекапу — 2026.3.4 (відновлено на HAOS 18.0, 
 `hacs/integration` 2.0.5 · `rospogrigio/localtuya` 5.2.5 · `NemesisRE/kiosk-mode` 10.0.0
 
 ### Add-ons
-Tailscale 0.27.1 · Terminal & SSH 10.0.2 · File editor 5.8.0
+Tailscale ≥0.27.1 · Terminal & SSH 10.0.2 · File editor 5.8.0
+
+**Tailscale add-on (стан 2026-09-14):** `share_homeassistant: disabled`, `userspace_networking: true`,
+`advertise_routes: []`, `advertise_exit_node: false`, `log_suppression: false`.
+Новий формат опцій: `advertise_tags` (замість `tags`), `taildrop` і `taildrive` обов'язкові.
+
+Інцидент 2026-09-14: після оновлення add-on контейнер падав у циклі. Причина — `share_homeassistant: funnel`
+при незалогіненому вузлі (`active login: <missing-profile>` після відновлення з бекапу): нова версія робить
+`FATAL: Funnel support is disabled` фатальним для всього контейнера, тому URL логіну в логах не встигав з'явитись.
+Фікс: `share_homeassistant: disabled` → старт → перелогін вузла → (за потреби) повернути `funnel`.
+Funnel вирішено **не використовувати**. У Tailscale Admin Console з `haos-ck` знято exit node і застарілий
+схвалений маршрут `10.10.30.0/24` (аддон його більше не анонсує). Повернути subnet-router можна будь-коли
+через `advertise_routes: ["10.10.30.0/24"]` — `autoApprovers` для `tag:server` підтвердить автоматично.
 (add-on repos: HACS, hassio-addons, Music Assistant, ESPHome)
 
 ### Масштаб
@@ -112,7 +138,7 @@ Tailscale 0.27.1 · Terminal & SSH 10.0.2 · File editor 5.8.0
 - [ ] localtuya бачить Tuya-пристрої (та сама мережа / firewall до :6668)
 - [ ] go2rtc камери (потоки)
 - [ ] mobile_app — можлива переавторизація 4 телефонів
-- [ ] Tailscale add-on (новий вузол у tailnet)
+- [x] Tailscale add-on — вузол той самий (`haos-ck`, 100.115.199.25), перелогінено 2026-09-14
 - [ ] Google Drive backup знову вивантажує
 - [ ] Перевірити роботу воріт (`open_office_gate_pulse`)
 
@@ -130,7 +156,8 @@ Ethernet/PoE), бо USB-passthrough у QEMU на Apple Silicon ненадійн�
 - [ ] **Автостарт VM** — LaunchDaemon (root, бо vmnet), щоб HA піднімався після ребуту
 - [ ] macOS: заборона сну — `sudo pmset -a sleep 0 disablesleep 1 powernap 0; pmset -a autorestart 1`
 - [ ] Відновити DNS (підняти Pi-hole деінде або лишити роутер/1.1.1.1)
-- [ ] Доступ із MacBook: `home-srv` як Tailscale subnet-router 10.10.30.0/24
+- [ ] Доступ із MacBook до LAN 10.10.30.0/24: варіанти — `home-srv` як subnet-router **або** `haos-ck`
+      (`advertise_routes` в аддоні, він у VLAN 30). Поки відкладено; до `:8123` доступ є напряму через tailnet.
 - [ ] Завершити звірку (localtuya / go2rtc / mobile_app / ворота)
 - [ ] Зберегти ключ шифрування бекапів у менеджер паролів
 - [ ] Прибрати/розібратися зі старою UTM-VM «Virtual Machine»
@@ -146,4 +173,5 @@ Ethernet/PoE), бо USB-passthrough у QEMU на Apple Silicon ненадійн�
 - [x] Статичний IP `10.10.30.11`, SIA `:8124` працює
 - [ ] Автостарт (LaunchDaemon) + заборона сну
 - [ ] Повна звірка інтеграцій (localtuya/go2rtc/mobile_app/ворота)
-- [ ] DNS / Tailscale-маршрут
+- [x] Tailscale add-on працює, вузол у tailnet
+- [ ] DNS / subnet-маршрут у LAN
