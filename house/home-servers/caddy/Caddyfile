@@ -42,10 +42,9 @@
 
 	@torrent host torrent.pvt.sirohas.space
 	handle @torrent {
-		# qBittorrent з увімкненою Host header validation — віддаємо йому свій upstream-хост
-		reverse_proxy 10.10.30.20:30024 {
-			header_up Host {upstream_hostport}
-		}
+		# Host НЕ підміняти: qBittorrent звіряє Referer з Host (CSRF) → 401 на статику.
+		# Замість цього torrent.pvt.sirohas.space внесено у WebUI\ServerDomains + TrustedReverseProxiesList=10.10.30.13
+		reverse_proxy 10.10.30.20:30024
 	}
 
 	@nas host nas.pvt.sirohas.space

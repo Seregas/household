@@ -6,10 +6,11 @@
 
 ## 📍 ДЕ МИ ЗАРАЗ (читати першим у новій сесії)
 
-> **⚡ Актуальний стан на 2026-09-11** (нижче в цій секції — історія від 24.06, частково застаріла):
+> **⚡ Актуальний стан на 2026-09-14** (нижче в цій секції — історія від 24.06, частково застаріла):
 > NAS bare-metal у стійці, `tank8TB-mirror` імпортовано (75 %); ix-apps: **Jellyfin 30013, qBittorrent 30024, Tailscale**;
 > Proxmox-нода відновлена (CT 110 pihole, **CT 115 proxy/Caddy**, VM 150 genomics); `ssh pve` — по ключу. Внутрішні імена: **`*.pvt.sirohas.space`** (див. сесію 2026-09-11 ч.2).
-> Останнє: **"Сесія 2026-09-11 — qBittorrent на NAS"** — там же TODO.
+> Tailscale subnet-router для VLAN 10 **і VLAN 30** — тепер **тільки `pve`** (haos-ck перестав анонсувати після оновлення аддона, див. сесію 2026-09-14).
+> Останнє: **"Сесія 2026-09-14 — зник доступ до VLAN 30 через tailnet"** — там же TODO.
 
 **Зроблено (сесія 24.06.2026 — від голого заліза до готової ноди):**
 - ✅ Залізо зібрано: AM5D4ID2 + 9900X, 2×32 DDR5 (A1/B1), Samsung 990 PRO 1TB, NH-D12L
@@ -359,6 +360,8 @@ output 1.5 T, input/hg002 **401 G**), timemachine 581 G, pve-storage 228 G, medi
 - [x] Connection: порт 51413, UPnP off; індикатор зелений (проброс працює).
 - [ ] BitTorrent: ліміти сідування під Toloka (ratio / час) — за політикою трекера.
 - [ ] Бекап конфігу RB5009; геномна сесія: chm13 1.7 T, hg002 401 G, цільовий розмір диска VM 150 → після цього розширити квоти.
+- ℹ️ **Скидання пароля WebUI** (2026-10-12): `app.stop qbittorrent` → `sed -i '/^WebUI\\Password_PBKDF2=/d' qBittorrent.conf` → `app.start`
+  → тимчасовий пароль у `docker logs ix-qbittorrent-qbittorrent-1`. Конфіг редагувати ТІЛЬКИ при зупиненому app (інакше перезапише при виході).
 - ℹ️ Конфіг: `/mnt/.ix-apps/app_mounts/qbittorrent/config/qBittorrent/qBittorrent.conf`; стан торентів — `torrents.db`
   (SQLite у WAL-режимі: копіювати разом з `-wal`/`-shm`, інакше порожня). `Connection\PortRangeMin=6881` — мертвий
   ключ старого формату, реальний порт `Session\Port`.
@@ -383,8 +386,9 @@ github.com/caddy-dns/cloudflare` (бінар у `/usr/bin/caddy`, після `ap
 - Токен: `/etc/caddy/env` (0600) → systemd drop-in `caddy.service.d/env.conf` `EnvironmentFile=`. Cloudflare API token
   **Zone:DNS:Edit тільки на sirohas.space**. Wildcard `*.pvt.sirohas.space`, DNS-01, `resolvers 1.1.1.1` (щоб перевірка
   TXT не йшла через внутрішній wildcard).
-- Хости → upstream: jellyfin→nas:30013 · torrent→nas:30024 (`header_up Host {upstream_hostport}` — бо в qBittorrent
-  увімкнено Host header validation) · nas→https nas:443 · pbs→https .12:8007 · pve→https 10.10.10.10:8006 ·
+- Хости → upstream: jellyfin→nas:30013 · torrent→nas:30024 (Host НЕ підміняти — qBittorrent звіряє Referer з Host при CSRF,
+  інакше 401 на статику і "голий" HTML; замість цього у qBittorrent.conf: `WebUI\ServerDomains=torrent.pvt.sirohas.space`,
+  `ReverseProxySupportEnabled=true`, `TrustedReverseProxiesList=10.10.30.13` — виправлено 2026-10-12) · nas→https nas:443 · pbs→https .12:8007 · pve→https 10.10.10.10:8006 ·
   bmc→https 10.10.10.5 · pihole→.15:80 · ha→.11:8123. Self-signed upstream'и — `tls_insecure_skip_verify`. Невідомий хост → 404.
 
 **RB5009 (усе з коментарями):**
@@ -404,9 +408,11 @@ github.com/caddy-dns/cloudflare` (бінар у `/usr/bin/caddy`, після `ap
 - [x] Токен перевипущено (старий витік у journal через `--environ` у дефолтному юніті; прибрано drop-in'ом
   `ExecStart=` без `--environ`; journal чистий). ⚠️ Урок: ніколи не запускати Caddy з `--environ`, якщо секрети в env.
 - [x] Tailscale split DNS: `pvt.sirohas.space` → **10.10.30.15 (Pi-hole) + 10.10.30.1 (роутер, fallback)**; `home.arpa` → 10.10.30.1 (було).
-  Subnet-router'и в tailnet: **haos-ck** (VLAN 30) і **pve** (VLAN 10); Tailscale-app на NAS (`nasik`) маршрутів НЕ анонсує.
+  Subnet-router'и в tailnet на 09-11: **haos-ck** (VLAN 30) і **pve** (VLAN 10); Tailscale-app на NAS (`nasik`) маршрутів НЕ анонсує.
+  ⚠️ **Застаріло 2026-09-14:** haos-ck більше не анонсує — VLAN 30 тепер з `pve` (див. сесію 2026-09-14).
   Перевірено з Mac поза домом: jellyfin/ha/pve по HTTPS, сертифікат валідний.
-- [x] HAOS `configuration.yaml` `http:` — `trusted_proxies: [172.30.33.0/24, 127.0.0.1, 10.10.30.13]` (перші два — мережа аддонів/локально, вже були) → `ha.pvt.sirohas.space` 200.
+- [x] HAOS `trusted_proxies: [172.30.33.0/24, 127.0.0.1/32, 10.10.30.13/32]` (перші два — мережа аддонів/локально, вже були) → `ha.pvt.sirohas.space` 200.
+  ℹ️ У новому HAOS це **не в `configuration.yaml`**, а в UI: Settings → System → Network → Reverse proxy (Trust X-Forwarded-For + список).
 - [ ] Бекап конфігу RB5009 (після qBittorrent + proxy правил); додати CT 115 у PBS-бекап-джоб.
 - [ ] (Опц.) DNS-імена VLAN 10 в `home.arpa`.
 
@@ -414,6 +420,58 @@ github.com/caddy-dns/cloudflare` (бінар у `/usr/bin/caddy`, після `ap
 бо TrueNAS редіректить на свою IP) · pbs/pve/bmc 200 · pihole 302→/admin/ (власний `redir`, `/` у Pi-hole v6 = 403) · ha 200 (після trusted_proxies) · невідомий 404.
 ⚠️ `caddy validate` від root створює `/var/log/caddy/access.log` як root → сервіс падає з permission denied. Валідувати
 `runuser -u caddy -- env CLOUDFLARE_API_TOKEN=<40×A> caddy validate --config /etc/caddy/Caddyfile`.
+
+---
+
+## Сесія 2026-09-14 — зник доступ до VLAN 30 через tailnet (haos-ck перестав бути subnet-router)
+
+**Симптом (з дороги, чужа мережа 10.0.1.x):** `https://ha.pvt.sirohas.space` → «Unable to connect to Home Assistant» (оболонка
+малюється з кешу service worker — оманливо виглядає як «статика працює, websocket ні»); `dig ha.pvt.sirohas.space` → «no servers
+could be reached»; `ping 10.10.30.200` / `dig @10.10.30.200` — таймаут. При цьому tailnet живий (`home-srv`, `haos-ck` online), HAOS за
+своїм 100.x відкривався, `google.com` резолвився.
+
+**Діагноз (по ланцюжку):** DNS Mac'а = MagicDNS `100.100.100.100` → split-правило `pvt.sirohas.space` → 10.10.30.15 / 10.10.30.1 —
+**обидва резолвери в VLAN 30**, до якого зник субнет-маршрут → таймаут. Fallback на роутер не рятує, бо лежить за тим самим маршрутом.
+Trusted proxies HA, Caddy, Pi-hole, Cloudflare — **ні до чого**, все було справне.
+
+**Корінь:** Tailscale-аддон HAOS **v0.29.0 (21.08.2026)** — breaking change: дефолти `advertise_routes` / `accept_routes` /
+`advertise_exit_node` / `userspace_networking` вирівняли зі стоковим Tailscale. Раніше аддон **сам анонсував підмережі хоста**
+при порожньому `advertise_routes`; тепер без явного значення не анонсує нічого. Аддон оновився автоматично → haos-ck тихо
+перестав бути subnet-router для 10.10.30.0/24.
+
+**Фікс (зроблено): VLAN 30 анонсує нода `pve`, не HAOS.**
+```bash
+tailscale set --advertise-routes=10.10.10.0/24,10.10.30.0/24   # set, не up; список ЗАМІНЮЄ попередній — VLAN 10 повторити!
+tailscale debug prefs | grep -A4 AdvertiseRoutes
+```
++ admin → Machines → pve → Edit route settings → схвалити `10.10.30.0/24`. На Mac: Use Tailscale subnets ✓. Перевірено — HA по імені працює.
+`ip_forward` уже був увімкнений (`/etc/sysctl.d/99-tailscale.conf`). Нода має vmbr1.30 — трафік у VLAN 30 напряму, без hairpin.
+
+**Стан subnet-router'ів після сесії:** `pve` (100.87.204.37) — **10.10.10.0/24 + 10.10.30.0/24**; `haos-ck` — нічого; `nasik` — нічого.
+⚠️ Слабина з 08-01/08-02 стала ГОСТРІШОЮ: тепер **уся** доступність LAN через tailnet (VLAN 10 і 30, включно з DNS домашніх імен)
+залежить від однієї ноди.
+
+**Уроки:**
+- HAOS — найгірший кандидат на subnet-router: аддон з auto-update і breaking changes у дефолтах, часті рестарти HA, VM на Mac mini.
+- Найкращий — **RB5009** (RouterOS-контейнер з Tailscale, userspace networking ~100–200 Мбіт/с — для адмінок вистачає): завжди
+  увімкнений, бачить усі VLAN напряму, розриває циркулярну залежність «BMC потрібен, коли нода лежить, а маршрут до BMC — через ноду».
+  Tailscale підтримує кілька subnet-router'ів на один маршрут з failover → RB5009 primary + pve secondary.
+- Для інфраструктурних аддонів (Tailscale, MQTT, Z2M) — вимкнути auto-update, оновлювати вручну після changelog.
+- Діагностика «зник DNS»: спершу `scutil --dns` (хто резолвер) → `tailscale status` → `ping` до шлюзу підмережі. Не починати з HA/проксі.
+- `dig` з «no servers could be reached» при живому інтернеті = ламається саме ланцюжок MagicDNS → split-DNS-upstream.
+
+**Побічно помічено на pve:** health check `Tailscale failed to set the DNS configuration: /etc/resolv.conf operation not permitted` —
+`chattr +i` на resolv.conf знову стоїть, а `accept-dns` знову увімкнений (запис 08-02 про `--accept-dns=false` — не тримається,
+ймовірно скинуто пізнішим `tailscale up`). Нешкідливо для маршрутизації.
+
+**TODO:**
+- [ ] `tailscale set --accept-dns=false` на pve (прибрати warning; MagicDNS на хості не потрібен).
+- [ ] HAOS Tailscale-аддон: або явно `advertise_routes: [10.10.30.0/24]` (failover до pve), або лишити без анонсу — але **вимкнути auto-update** аддона.
+- [ ] Tailscale **всередині CT 110 (Pi-hole)** → другий резолвер для `pvt.sirohas.space` = його 100.x → DNS домашніх імен не залежить
+  від субнет-маршрутів (сьогоднішній сценарій став би «не відкривається HA», а не «зник DNS»).
+- [ ] **RB5009 як subnet-router** (RouterOS container + Tailscale) — primary для всіх VLAN; вирішити разом із питанням Headscale/WireGuard.
+- [ ] Cloudflare: support ticket на зміну email акаунта досі відкритий (Sign in with Apple + Hide My Email → reset-листи не доходять,
+  Apple relay пропускає лише зареєстровані розробником домени-відправники; зміна email у dashboard теж вимагає пароль → замкнене коло).
 
 ---
 
